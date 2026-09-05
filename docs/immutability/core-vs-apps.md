@@ -23,8 +23,9 @@ yt-dlp) → **brew**, resolved via PATH.
 ## Decisions (2026-09-05)
 
 - **chromium → out** (Flatpak browser; user default = Brave).
-- **lightweight default apps → out**: nautilus, evince, imv, mpv, gnome-calculator.
-  (`gnome-disk-utility` kept native in core — see Open items.)
+- **lightweight default apps → out**: evince (→ `org.gnome.Evince`), imv (→ `org.gnome.Loupe`),
+  gnome-calculator. `nautilus`, `mpv`/`mpv-mpris`, `gnome-disk-utility` kept native in core
+  after verification — see Open items.
 - **docker/moby → stays core** (system daemon; not a Flatpak/brew fit).
 - Dev language toolchains + on-demand dev CLIs → brew.
 - Heavy apps (obs-studio, kdenlive, pinta, xournalpp, libreoffice, obsidian) → Flatpak.
@@ -38,22 +39,22 @@ Moving them to Flatpak/brew *removes those failures* as well.
 Some "moved" binaries are invoked by Omarchy scripts/config (ref counts from a grep of
 `bin/` + `default/`). Removing them from core without these repoints breaks tooling:
 
-| Binary | Where it's used | Repoint needed |
-|--------|-----------------|----------------|
-| chromium/brave (20/8) | `bin/omarchy-launch-webapp` `pick_chromium_desktop()` | add `com.brave.Browser.desktop` / `org.chromium.Chromium.desktop` to the desktop-id list |
-| imv (3) | `default/applications/mimeapps.list`, `default/hypr/apps/system.lua` | point image mime + keybind at `org.gnome.Loupe` (or chosen viewer) |
-| mpv (7) | `omarchy-capture-screenrecording`, `omarchy-cmd-screenrecord`, `omarchy-chromium-ytdlp-host` | invoke `flatpak run io.mpv.Mpv` (or keep mpv core as a media engine) |
-| nautilus (10) | dropbox/retroarch service installers, skill docs | Flatpak nautilus is default FM; python-extension integrations (dropbox) degrade |
+| Binary | Where it's used | Resolution |
+|--------|-----------------|-----------|
+| chromium/brave (20/8) | `bin/omarchy-launch-webapp`, `mimeapps.list` http(s) | **DONE** — launch-webapp made flatpak-aware (flatpak export dirs + `com.brave.Browser.desktop`/`org.chromium.Chromium.desktop` + `flatpak run <appid> --app`); http(s) default → `com.brave.Browser.desktop` |
+| imv (3) | `mimeapps.list`, `hypr/apps/system.lua`, `omarchy-plymouth-preview` | **DONE** — image mimes → `org.gnome.Loupe.desktop`; window rules add `org.gnome.Loupe`; preview uses `xdg-open` |
+| mpv (7) | capture / screenrecord / ytdlp-host, `mimeapps.list` video | **KEPT CORE** — v4l2 webcam overlay breaks under Flatpak sandbox; no repoint |
+| nautilus (10) | launch-nautilus(-cwd), theme-bg-install, retroarch, `mimeapps.list` dir | **KEPT CORE** — not on Flathub (404) + native-binary launched |
 
 `evince`, `gnome-calculator`, `htop`, `tldr`, `whois` have **0**
 tooling refs — clean to move.
 
 ## Open items
 
-- **gnome-disk-utility**: RESOLVED — kept native in core. It's in neither Flatpak nor
-  Homebrew (confirmed 404), and needs the system udisks2 daemon (already present via
-  udiskie/gvfs), so it's treated as a system tool.
+- **Kept native in core after verification** (not user apps in practice): `gnome-disk-utility`
+  (fronts udisks2; not in Flatpak/brew), `nautilus` (not on Flathub; native-binary launched),
+  `mpv`/`mpv-mpris` (v4l2 webcam overlay + shell MPRIS bridge).
 - **Homebrew bootstrap is a core concern**: the base image must install brew and export
   its shellenv (a `/etc/profile.d` drop-in) so on-demand tooling resolves `nvim`/`tmux`/`gh`.
-- Verify the `# TODO verify` Flatpak ids and brew formula names against Flathub / homebrew-core.
-- mpv is the one item where the "lightweight apps out" decision conflicts with tooling; flagged above.
+- **IDs verified 2026-09-05** against Flathub / homebrew-core: every Flatpak id and brew
+  formula returns 200 except `org.gnome.Nautilus` (404), which is why nautilus stays core.

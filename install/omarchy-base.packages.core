@@ -83,6 +83,8 @@ ImageMagick
 tesseract
 tesseract-langpack-eng
 ffmpegthumbnailer
+mpv                         # media engine: v4l2 webcam overlay for capture + playback; Flatpak sandbox breaks the webcam path
+mpv-mpris                   # MPRIS bridge so the shell's media panel sees mpv
 
 # --- Containers (kept core by decision: system daemon, not a Flatpak/brew fit) ---
 moby-engine
@@ -128,6 +130,8 @@ gvfs-nfs
 gvfs-smb
 udiskie
 gnome-disk-utility          # GUI front-end to the system udisks2 daemon; not in Flatpak/brew, so it lives in core
+nautilus                    # file manager: not published on Flathub (404) + launched as a native binary by omarchy scripts
+sushi                       # nautilus previewer (spacebar quick-look)
 
 # --- Display manager ---
 sddm

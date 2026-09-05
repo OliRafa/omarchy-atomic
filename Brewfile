@@ -16,12 +16,12 @@ brew "luarocks"
 brew "lua"                  # replaces compat-lua / compat-lua-libs
 
 # --- Language toolchains (were dnf; brew is the versioned-toolchain sweet spot) ---
-brew "rust"                 # cargo + rustc  # TODO verify (or use rustup-init)
+brew "rust"                 # cargo + rustc
 brew "llvm"                 # provides clang
 brew "ruby"
 brew "libyaml"
 brew "openjdk"              # java-latest-openjdk
-brew "dotnet"              # dotnet-runtime-9.0 (also fixes aarch64)  # TODO verify
+brew "dotnet"              # dotnet-runtime-9.0 (also fixes aarch64)
 brew "poetry"              # python3-poetry-core
 brew "libpq"
 brew "mariadb-connector-c"
@@ -34,6 +34,6 @@ brew "tmux"
 brew "htop"
 brew "yt-dlp"
 brew "tealdeer"            # tldr client
-brew "dua-cli"            # TODO verify formula name
+brew "dua-cli"
 brew "whois"
-brew "inxi"               # TODO verify (may not be in homebrew-core; keep dnf if absent)
+brew "inxi"
