@@ -1,0 +1,30 @@
+# omarchy-atomic — GUI user applications delivered via Flatpak (Flathub)
+# Format: one Flatpak app-id per line. Installed onto the writable layer, NOT
+# baked into the immutable base image.
+#
+# IDs marked "TODO verify" need confirming against Flathub before first use.
+
+# --- Browser (was: chromium in core). User's default is Brave; also hosts web-apps. ---
+# REQUIRED REPOINT: add com.brave.Browser.desktop / org.chromium.Chromium.desktop
+# to pick_chromium_desktop() in bin/omarchy-launch-webapp so PWAs find it.
+com.brave.Browser
+# alternates:
+# org.chromium.Chromium
+# org.mozilla.firefox
+
+# --- Lightweight default apps (moved out of core by decision) ---
+org.gnome.Nautilus          # file manager (loses nautilus-python extensions vs native)
+org.gnome.Papers            # PDF viewer (evince successor)   # TODO verify id (org.gnome.Evince?)
+org.gnome.Calculator
+io.mpv.Mpv                  # REQUIRED REPOINT: mpv callsites in omarchy-capture-screenrecording / omarchy-cmd-screenrecord / omarchy-chromium-ytdlp-host
+org.gnome.Loupe             # image viewer, replaces `imv`. REQUIRED REPOINT: mimeapps.list + hypr/apps/system.lua
+# gnome-disk-utility: no first-class Flatpak (needs host udisks2). DECISION NEEDED:
+#   keep native as a core exception, or drop. Left out of core AND flatpaks for now.
+
+# --- Heavier creative / office / notes apps ---
+com.obsproject.Studio       # obs-studio (also fixes aarch64: was in omarchy-aarch64-unavailable)
+org.kde.kdenlive
+com.github.PintaProject.Pinta   # pinta (also fixes aarch64)
+com.github.xournalpp.xournalpp
+org.libreoffice.LibreOffice
+md.obsidian.Obsidian        # obsidian (also fixes aarch64 AUR naming trap)
