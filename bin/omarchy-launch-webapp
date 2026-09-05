@@ -9,9 +9,11 @@ fi
 
 desktop_paths=(
   "$HOME/.local/share/applications"
+  "$HOME/.local/share/flatpak/exports/share/applications"
   "$HOME/.nix-profile/share/applications"
   "/usr/local/share/applications"
   "/usr/share/applications"
+  "/var/lib/flatpak/exports/share/applications"
 )
 
 resolve_desktop_file() {
@@ -50,6 +52,8 @@ pick_default_desktop() {
   fi
 
   for candidate in \
+    com.brave.Browser.desktop \
+    org.chromium.Chromium.desktop \
     chromium-browser.desktop \
     chromium.desktop \
     google-chrome.desktop \
@@ -70,7 +74,7 @@ pick_default_desktop() {
 pick_chromium_desktop() {
   local candidate
 
-  for candidate in chromium-browser.desktop chromium.desktop google-chrome.desktop brave-browser.desktop microsoft-edge.desktop vivaldi-stable.desktop; do
+  for candidate in com.brave.Browser.desktop org.chromium.Chromium.desktop chromium-browser.desktop chromium.desktop google-chrome.desktop brave-browser.desktop microsoft-edge.desktop vivaldi-stable.desktop; do
     if resolve_desktop_file "$candidate" >/dev/null; then
       printf "%s\n" "$candidate"
       return 0
@@ -86,11 +90,25 @@ shift
 default_desktop="$(pick_default_desktop 2>/dev/null || true)"
 chromium_desktop="$(pick_chromium_desktop 2>/dev/null || true)"
 
+launch_desktop="${chromium_desktop:-$default_desktop}"
+
 browser_exec=""
-if [[ -n "$chromium_desktop" ]]; then
-  browser_exec="$(resolve_exec "$chromium_desktop" 2>/dev/null || true)"
-elif [[ -n "$default_desktop" ]]; then
-  browser_exec="$(resolve_exec "$default_desktop" 2>/dev/null || true)"
+if [[ -n "$launch_desktop" ]]; then
+  browser_exec="$(resolve_exec "$launch_desktop" 2>/dev/null || true)"
+fi
+
+# Flatpak browsers (e.g. com.brave.Browser) resolve to `Exec=flatpak run <app-id> ...`,
+# so the app-id is the desktop-file stem. Launch through flatpak directly, otherwise the
+# chromium --app flag would be handed to flatpak instead of the browser.
+if [[ "$(basename -- "$browser_exec")" == "flatpak" && -n "$launch_desktop" ]]; then
+  appid="${launch_desktop%.desktop}"
+  if [[ "$launch_desktop" == "$chromium_desktop" ]]; then
+    exec setsid uwsm-app -- flatpak run "$appid" --new-window --app="$url" "$@"
+  elif [[ "$appid" =~ [Ff]irefox ]]; then
+    exec setsid uwsm-app -- flatpak run "$appid" --new-window "$url" "$@"
+  else
+    exec setsid uwsm-app -- flatpak run "$appid" "$url" "$@"
+  fi
 fi
 
 if [[ -z "$browser_exec" ]]; then
@@ -103,7 +121,7 @@ if [[ -z "$browser_exec" ]]; then
 fi
 
 if [[ -z "$browser_exec" ]]; then
-  notify-send "Webapp" "No supported browser found. Install Firefox or Chromium."
+  notify-send "Webapp" "No supported browser found. Install a Chromium-based browser or Firefox (Flatpak works)."
   exit 1
 fi
 
