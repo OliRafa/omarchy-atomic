@@ -18,8 +18,8 @@ org.gnome.Papers            # PDF viewer (evince successor)   # TODO verify id (
 org.gnome.Calculator
 io.mpv.Mpv                  # REQUIRED REPOINT: mpv callsites in omarchy-capture-screenrecording / omarchy-cmd-screenrecord / omarchy-chromium-ytdlp-host
 org.gnome.Loupe             # image viewer, replaces `imv`. REQUIRED REPOINT: mimeapps.list + hypr/apps/system.lua
-# gnome-disk-utility: no first-class Flatpak (needs host udisks2). DECISION NEEDED:
-#   keep native as a core exception, or drop. Left out of core AND flatpaks for now.
+# gnome-disk-utility: kept NATIVE in core (needs the system udisks2 daemon; in neither
+#   Flatpak nor brew). See install/omarchy-base.packages.core.
 
 # --- Heavier creative / office / notes apps ---
 com.obsproject.Studio       # obs-studio (also fixes aarch64: was in omarchy-aarch64-unavailable)

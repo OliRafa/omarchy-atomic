@@ -23,8 +23,8 @@ yt-dlp) → **brew**, resolved via PATH.
 ## Decisions (2026-09-05)
 
 - **chromium → out** (Flatpak browser; user default = Brave).
-- **lightweight default apps → out**: nautilus, evince, imv, mpv, gnome-calculator,
-  gnome-disk-utility.
+- **lightweight default apps → out**: nautilus, evince, imv, mpv, gnome-calculator.
+  (`gnome-disk-utility` kept native in core — see Open items.)
 - **docker/moby → stays core** (system daemon; not a Flatpak/brew fit).
 - Dev language toolchains + on-demand dev CLIs → brew.
 - Heavy apps (obs-studio, kdenlive, pinta, xournalpp, libreoffice, obsidian) → Flatpak.
@@ -45,13 +45,14 @@ Some "moved" binaries are invoked by Omarchy scripts/config (ref counts from a g
 | mpv (7) | `omarchy-capture-screenrecording`, `omarchy-cmd-screenrecord`, `omarchy-chromium-ytdlp-host` | invoke `flatpak run io.mpv.Mpv` (or keep mpv core as a media engine) |
 | nautilus (10) | dropbox/retroarch service installers, skill docs | Flatpak nautilus is default FM; python-extension integrations (dropbox) degrade |
 
-`evince`, `gnome-calculator`, `gnome-disk-utility`, `htop`, `tldr`, `whois` have **0**
+`evince`, `gnome-calculator`, `htop`, `tldr`, `whois` have **0**
 tooling refs — clean to move.
 
 ## Open items
 
-- **gnome-disk-utility**: no first-class Flatpak (needs host udisks2). Keep native as a
-  core exception, or drop? Currently in neither list.
+- **gnome-disk-utility**: RESOLVED — kept native in core. It's in neither Flatpak nor
+  Homebrew (confirmed 404), and needs the system udisks2 daemon (already present via
+  udiskie/gvfs), so it's treated as a system tool.
 - **Homebrew bootstrap is a core concern**: the base image must install brew and export
   its shellenv (a `/etc/profile.d` drop-in) so on-demand tooling resolves `nvim`/`tmux`/`gh`.
 - Verify the `# TODO verify` Flatpak ids and brew formula names against Flathub / homebrew-core.

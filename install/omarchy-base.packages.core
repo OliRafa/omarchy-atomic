@@ -127,6 +127,7 @@ gvfs-mtp
 gvfs-nfs
 gvfs-smb
 udiskie
+gnome-disk-utility          # GUI front-end to the system udisks2 daemon; not in Flatpak/brew, so it lives in core
 
 # --- Display manager ---
 sddm
