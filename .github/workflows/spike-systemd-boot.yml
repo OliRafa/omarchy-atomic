@@ -51,7 +51,9 @@ jobs:
       - name: bootc install to-disk (composefs-native + systemd-boot)
         run: |
           mkdir -p "$RUNNER_TEMP/out"
-          truncate -s 8G "$RUNNER_TEMP/out/disk.raw"
+          # Root partition must hold the composefs image (~8.6 GB). Host has ~120 GB free
+          # after the free-disk step, and the file is sparse, so size it generously.
+          truncate -s 20G "$RUNNER_TEMP/out/disk.raw"
           sudo podman run --rm --privileged --pid=host \
             --security-opt label=type:unconfined_t \
             -v /var/lib/containers:/var/lib/containers \
