@@ -4,8 +4,8 @@ Two-image design for the bootc PoC:
 
 | Image | Contents | Status |
 |-------|----------|--------|
-| **core** — `images/core/Containerfile` | Fedora Asahi base-atomic + Omarchy Hyprland core (`install/omarchy-base.packages.core`) + core first-party tools (tensaku, voxtype, tobi-try, hyprland-preview-share-picker) + PATH/brew shell hooks | **building now** |
-| **preinstalls** — *later* | `FROM core` + removable app-like tools (aether, cliamp, omacut, omawrite) + default Flatpaks (`install/flatpaks`) + Homebrew bootstrap (`Brewfile`) | TODO |
+| **core** — `images/core/Containerfile` → `omarchy-atomic-core` | Fedora Asahi base-atomic + Omarchy Hyprland core (`install/omarchy-base.packages.core`) + core first-party tools + m1n1/devicetree fix + PATH/brew hooks | builds + lints clean |
+| **preinstalls** — `images/preinstalls/Containerfile` → `omarchy-atomic` | `FROM core` + app-like first-party tools baked in (aether, cliamp, omacut, omawrite) + **first-boot** Flatpak (`install/flatpaks`) & Homebrew (`Brewfile`) provisioning | built |
 
 ## Base image
 
@@ -18,10 +18,27 @@ only layer the Omarchy desktop on top. Tags `43` and `44` are published.
 ## Build (native aarch64 / Apple Silicon)
 
 ```sh
-./images/build.sh                     # docker, Fedora 44, first-party tools on
-WITH_FIRST_PARTY=0 ./images/build.sh  # faster: validate the package set only
-ENGINE=podman FEDORA=43 ./images/build.sh
+./images/build.sh core                    # -> omarchy-atomic-core:44
+./images/build.sh preinstalls             # -> omarchy-atomic:44 (FROM the core image)
+WITH_FIRST_PARTY=0 ./images/build.sh core # faster: validate the core package set only
+ENGINE=podman FEDORA=43 ./images/build.sh core
 ```
+
+## Preinstalls image
+
+`FROM omarchy-atomic-core`, this adds the removable, app-like layer on top of the lean core:
+
+- **App-like first-party tools baked in** — aether, cliamp, omacut, omawrite install to
+  `/usr/bin` at build time (they're just binaries), via `fedora-first-party.sh preinstalls`.
+- **Homebrew + Flatpak = first-boot provisioning, not baked.** Both live in `/var`
+  (machine-state), which a bootc image only *seeds* on first boot and does not track on
+  upgrades — so they can't live in immutable `/usr` (and baking Flatpaks would add GBs and go
+  stale). Instead the image ships the lists at `/usr/share/omarchy-atomic/{Brewfile,flatpaks}`
+  and two stamped, idempotent oneshot units (the uBlue/Bluefin/Bazzite pattern):
+  - `omarchy-flatpak-setup.service` → adds Flathub, installs `install/flatpaks` system-wide.
+  - `omarchy-brew-setup.service` → installs Homebrew for the primary user, runs `brew bundle`
+    against the `Brewfile`. Retries until a primary user exists; `brew bundle` can be slow on
+    first boot (some aarch64 formulae build from source). **Needs on-hardware validation.**
 
 ## e2e tests
 

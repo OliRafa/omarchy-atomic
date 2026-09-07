@@ -1,0 +1,39 @@
+# omarchy-atomic — PREINSTALLS image (Fedora Asahi · aarch64)
+#
+# FROM the core image; adds the removable, app-like layer:
+#   - app-like first-party tools (aether, cliamp, omacut, omawrite) — BAKED IN (just binaries)
+#   - Homebrew + Brewfile          — first-boot provisioning (can't be baked; see below)
+#   - Flatpak app set (Flathub)    — first-boot provisioning (can't be baked; see below)
+#
+# Why brew/flatpak are first-boot, not baked: both live in /var (machine-state), which a bootc
+# image only *seeds* on first boot and does not track on upgrades — so they cannot live in the
+# immutable /usr. Baking them would also balloon the image (Flatpaks are GBs) and go stale.
+# This is the same first-boot pattern uBlue/Bluefin/Bazzite use.
+#
+# Build (needs the core image built/pulled first):
+#   ./images/build.sh core && ./images/build.sh preinstalls
+ARG BASE=omarchy-atomic-core
+ARG TAG=44
+FROM ${BASE}:${TAG}
+
+ARG OMARCHY_PREFIX=/usr/share/omarchy
+
+# 1) App-like first-party tools, baked into /usr/bin (the preinstalls tier).
+RUN dnf -y install sudo >/dev/null 2>&1 || true; \
+    OMARCHY_INSTALL=${OMARCHY_PREFIX}/install \
+    OMARCHY_FIRST_PARTY_PREFIX=/usr \
+    HOME=/var/tmp/fp CARGO_HOME=/var/tmp/fp/cargo \
+      bash ${OMARCHY_PREFIX}/install/helpers/fedora-first-party.sh preinstalls || true; \
+    rm -rf /var/tmp/fp; dnf clean all
+
+# 2) Ship the app lists (image-tracked) + first-boot provisioning services.
+COPY Brewfile install/flatpaks /usr/share/omarchy-atomic/
+COPY images/preinstalls/files/ /
+RUN chmod +x /usr/libexec/omarchy-brew-setup /usr/libexec/omarchy-flatpak-setup \
+ && systemctl enable omarchy-flatpak-setup.service omarchy-brew-setup.service
+
+# 3) Clean build residue + bootc lint.
+RUN rm -rf /var/cache/dnf /var/cache/libdnf5 /var/lib/dnf/repos /var/lib/dnf/history* \
+ && rm -f /var/log/dnf5.log* /var/log/dnf.log* /var/log/hawkey.log* \
+ && rm -rf /run/dnf /tmp/* \
+ && bootc container lint

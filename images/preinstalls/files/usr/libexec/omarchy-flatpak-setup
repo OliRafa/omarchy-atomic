@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# First-boot provisioning: add Flathub + install the omarchy-atomic Flatpak app set.
+#
+# Flatpaks live in /var/lib/flatpak (machine-state), which a bootc image only seeds on first
+# boot and does not track on upgrades — so they can't be baked into the immutable image. This
+# installs them once, system-wide. Idempotent: re-runs install only what's still missing, and
+# only stamps done once every app is present. (Flatpaks self-update afterwards via `flatpak update`.)
+set -uo pipefail
+
+LIST=/usr/share/omarchy-atomic/flatpaks
+STAMP=/var/lib/omarchy/flatpak-setup-done
+
+command -v flatpak >/dev/null 2>&1 || { echo "flatpak-setup: flatpak not installed"; exit 0; }
+[ -f "$LIST" ] || { echo "flatpak-setup: no list at $LIST"; exit 0; }
+[ -f "$STAMP" ] && exit 0
+
+flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo || true
+
+fail=0
+for app in $(grep -vE '^\s*#|^\s*$' "$LIST" | awk '{print $1}'); do
+  if flatpak info --system "$app" >/dev/null 2>&1; then continue; fi
+  echo "flatpak-setup: installing $app"
+  flatpak install -y --system --noninteractive flathub "$app" || { echo "flatpak-setup: FAILED $app" >&2; fail=1; }
+done
+
+if [ "$fail" = 0 ]; then
+  mkdir -p "$(dirname "$STAMP")"; date -u +%FT%TZ >"$STAMP"
+  echo "flatpak-setup: done"
+else
+  echo "flatpak-setup: some installs failed; will retry next boot" >&2
+fi
+exit "$fail"

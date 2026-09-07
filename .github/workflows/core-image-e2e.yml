@@ -48,6 +48,12 @@ jobs:
       - name: Container smoke test
         run: ./images/core/hack/smoke.sh omarchy-atomic-core:44
 
+      - name: Build preinstalls image (app-like first-party + brew/flatpak first-boot units)
+        run: ./images/build.sh preinstalls
+
+      - name: Preinstalls smoke test
+        run: ./images/preinstalls/hack/smoke.sh omarchy-atomic:44
+
       - name: Build the boot-test overlay (compiles the gated smoke unit onto the image)
         run: |
           docker build -t omarchy-atomic-core:44-boottest \

@@ -1,0 +1,15 @@
+[Unit]
+Description=Install Homebrew + the omarchy-atomic Brewfile (first boot)
+After=network-online.target
+Wants=network-online.target
+# Retries each boot until a primary user exists and the bundle succeeds.
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# brew bundle can take a while on first boot (some aarch64 formulae build from source).
+TimeoutStartSec=infinity
+ExecStart=/usr/libexec/omarchy-brew-setup
+
+[Install]
+WantedBy=multi-user.target
