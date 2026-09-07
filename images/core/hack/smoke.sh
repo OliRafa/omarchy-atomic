@@ -21,8 +21,11 @@ ok(){ printf '  \033[32m✓\033[0m %s\n' "$1"; }
 no(){ printf '  \033[31m✗ %s\033[0m\n' "$1"; fail=1; }
 
 echo "== Fedora Asahi base (Apple Silicon) =="
+# Note: use `rpm -q <pkg>` (not `rpm -qa | grep -q`) — under `set -o pipefail`, grep -q's
+# early exit SIGPIPEs rpm -qa and the pipeline reports failure even on a match.
 [ "$(uname -m)" = aarch64 ] && ok "aarch64" || no "not aarch64: $(uname -m)"
-rpm -qa 2>/dev/null | grep -qiE 'kernel-16k|asahi' && ok "Asahi kernel/packages present" || no "no kernel-16k / asahi packages — wrong base"
+rpm -q kernel-16k >/dev/null 2>&1 && ok "kernel-16k (Asahi kernel)" || no "kernel-16k missing — wrong base"
+rpm -q asahi-platform-metapackage >/dev/null 2>&1 && ok "asahi-platform-metapackage" || no "asahi platform packages missing"
 
 echo "== core desktop packages =="
 for p in hyprland quickshell uwsm sddm NetworkManager pipewire wireplumber fcitx5 qt6-qtimageformats glycin-loaders; do
