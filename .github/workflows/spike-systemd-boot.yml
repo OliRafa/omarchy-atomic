@@ -35,11 +35,10 @@ jobs:
       - name: Show disk
         run: df -h / /mnt 2>/dev/null || df -h /
 
-      - name: Install podman, libguestfs, btrfs
+      - name: Install podman + btrfs tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends podman libguestfs-tools btrfs-progs qemu-utils
-          sudo chmod 0644 /boot/vmlinuz-* || true   # libguestfs direct backend reads the host kernel
+          sudo apt-get install -y --no-install-recommends podman btrfs-progs
 
       - name: Build core + systemd-boot spike into podman storage
         run: |
@@ -66,24 +65,22 @@ jobs:
               /output/disk.raw
           sudo chown "$(id -u):$(id -g)" "$RUNNER_TEMP/out/disk.raw"
 
-      - name: Assert ESP has systemd-boot and NO grub
-        env:
-          LIBGUESTFS_BACKEND: direct
+      - name: Assert ESP has systemd-boot and NO grub (loopback mount)
         run: |
+          # Plain loopback mount instead of libguestfs — the libguestfs qemu appliance won't
+          # launch on the aarch64 runner (guestfs_launch failed), and we only need to read the
+          # vfat ESP (partition 1).
           IMG="$RUNNER_TEMP/out/disk.raw"
-          esp=$(guestfish --ro -a "$IMG" <<'EOF' | awk -F': ' '$2=="vfat"{print $1; exit}'
-          run
-          list-filesystems
-          EOF
-          )
-          echo "ESP partition: $esp"
-          [ -n "$esp" ] || { echo "FAIL: no vfat ESP found"; exit 1; }
-          echo "--- /EFI tree ---"; virt-ls -a "$IMG" -m "$esp" -R /EFI || true
+          loop=$(sudo losetup -Pf --show "$IMG"); echo "loop: $loop"
+          sudo mkdir -p /mnt/esp
+          sudo mount "${loop}p1" /mnt/esp
+          echo "--- /EFI tree ---"; sudo find /mnt/esp/EFI -maxdepth 3 -print 2>/dev/null || true
           sd=false; grub=false
-          [ "$(guestfish --ro -a "$IMG" -m "$esp" exists /EFI/systemd/systemd-bootaa64.efi)" = true ] && sd=true
-          [ "$(guestfish --ro -a "$IMG" -m "$esp" exists /EFI/BOOT/BOOTAA64.EFI)" = true ] && sd=true
-          [ "$(guestfish --ro -a "$IMG" -m "$esp" exists /EFI/fedora/grubaa64.efi)" = true ] && grub=true
-          $sd   && echo "OK: systemd-boot present on ESP"   || { echo "FAIL: systemd-boot missing"; exit 1; }
+          sudo test -e /mnt/esp/EFI/systemd/systemd-bootaa64.efi && sd=true
+          sudo test -e /mnt/esp/EFI/BOOT/BOOTAA64.EFI && sd=true
+          sudo test -e /mnt/esp/EFI/fedora/grubaa64.efi && grub=true
+          sudo umount /mnt/esp; sudo losetup -d "$loop" || true
+          $sd   && echo "OK: systemd-boot on ESP"   || { echo "FAIL: systemd-boot missing"; exit 1; }
           $grub && { echo "FAIL: grub present on ESP"; exit 1; } || echo "OK: no grub on ESP"
 
       - name: Upload disk metadata

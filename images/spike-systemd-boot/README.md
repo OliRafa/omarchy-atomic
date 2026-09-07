@@ -57,6 +57,8 @@ on device`) — not any systemd-boot/composefs rejection. Both images also build
 to complete the ESP assertion.)
 
 - [x] Image builds + `bootc container lint` passes (systemd-boot; grub/bootupd removed)
-- [x] `bootc install --composefs-backend --bootloader systemd` accepted on the Asahi base
-- [ ] systemd-boot lands on the ESP, no grub  (CI disk-fixed; re-running)
+- [x] **`bootc install to-disk --composefs-backend --bootloader systemd` fully SUCCEEDS on the
+      Asahi base** (CI step "bootc install to-disk" = success) — the core question, answered yes.
+- [ ] systemd-boot lands on the ESP, no grub — CI check switched from libguestfs (its qemu
+      appliance won't launch on the aarch64 runner) to a plain loopback mount; re-running.
 - [ ] Hardware: U-Boot → systemd-boot → Asahi kernel boots with USB/GPU (devicetree intact)
