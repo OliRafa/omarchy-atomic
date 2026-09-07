@@ -46,7 +46,17 @@ bootctl list   | grep -qi 'Type #1'        # BLS Type-1 entry present (no UKI)
 test ! -e /boot/efi/EFI/fedora/grubaa64.efi  # GRUB gone
 ```
 
-## Verdict (fill in after CI + a hardware boot)
+## Verdict
 
-- [ ] CI: builds + lints + systemd-boot on ESP
-- [ ] Hardware: boots to a working desktop with USB/GPU (DT intact)
+CI run 1 established the key result: **bootc on the Fedora Asahi base accepts
+`--composefs-backend --bootloader systemd`.** The install ran all the way through GPT
+partitioning (1G ESP + 9G ARM-64 root), btrfs + FAT filesystem creation, and *began pulling
+the image into the composefs repository* before hitting runner disk limits (`No space left
+on device`) — not any systemd-boot/composefs rejection. Both images also build and pass
+`bootc container lint`. (Fixed CI disk headroom via `jlumbroso/free-disk-space`; re-running
+to complete the ESP assertion.)
+
+- [x] Image builds + `bootc container lint` passes (systemd-boot; grub/bootupd removed)
+- [x] `bootc install --composefs-backend --bootloader systemd` accepted on the Asahi base
+- [ ] systemd-boot lands on the ESP, no grub  (CI disk-fixed; re-running)
+- [ ] Hardware: U-Boot → systemd-boot → Asahi kernel boots with USB/GPU (devicetree intact)

@@ -21,10 +21,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Free up runner disk
-        run: |
-          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache 2>/dev/null || true
-          df -h /
+      - name: Free up runner disk (bootc install-to-disk + two image builds are space-hungry)
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: true
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+
+      - name: Show disk
+        run: df -h / /mnt 2>/dev/null || df -h /
 
       - name: Install podman, libguestfs, btrfs
         run: |
@@ -42,7 +51,7 @@ jobs:
       - name: bootc install to-disk (composefs-native + systemd-boot)
         run: |
           mkdir -p "$RUNNER_TEMP/out"
-          truncate -s 10G "$RUNNER_TEMP/out/disk.raw"
+          truncate -s 8G "$RUNNER_TEMP/out/disk.raw"
           sudo podman run --rm --privileged --pid=host \
             --security-opt label=type:unconfined_t \
             -v /var/lib/containers:/var/lib/containers \
