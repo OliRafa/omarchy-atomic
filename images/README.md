@@ -23,6 +23,38 @@ WITH_FIRST_PARTY=0 ./images/build.sh  # faster: validate the package set only
 ENGINE=podman FEDORA=43 ./images/build.sh
 ```
 
+## e2e tests
+
+Modeled on `home-servers-setup/ultron-os` (build-from-source, then assert). Split in two
+because our image is aarch64 Fedora Asahi — its `kernel-16k` only boots on real Apple
+Silicon, so the ultron-os-style qemu boot test isn't possible in generic CI.
+
+- **Container smoke test — `images/core/hack/smoke.sh`** (runs now, anywhere aarch64):
+  runs the built image as a container and asserts the userspace — Asahi base, core desktop
+  packages, docker/nautilus/mpv/gnome-disk-utility kept in core, the omarchy tree + commands
+  on PATH, the four core first-party tools in `/usr/bin` (not the `/usr/local` symlink), the
+  preinstall "bloat" absent, the profile.d hooks, and the mimeapps repoints.
+
+  ```sh
+  ./images/build.sh && ./images/core/hack/smoke.sh
+  ```
+
+- **Boot smoke harness — `images/core/hack/boottest/`** (on real Apple Silicon / Asahi VM):
+  the ultron-os pattern — a gated `omarchy-boottest.service` runs `boot-smoke.sh` at boot
+  and reports `BOOT SMOKE: PASS` over the serial console (running Asahi kernel, sddm,
+  NetworkManager, desktop stack, first-party tools, immutability invariants). Build the
+  overlay and deploy it, then read `journalctl -u omarchy-boottest`:
+
+  ```sh
+  docker build -t omarchy-atomic-core:44-boottest \
+    --build-arg BASE=omarchy-atomic-core:44 \
+    -f images/core/hack/boottest/Containerfile .
+  ```
+
+- **CI — `.github/workflows/core-image-e2e.yml`**: on an `ubuntu-24.04-arm` runner, builds
+  the image (first-party on, `bootc container lint` in-build), runs the container smoke test,
+  and builds the boot-test overlay.
+
 ## Known bootc follow-ups (tracked; not blockers for the core build)
 
 - **`/usr/local` vs `/usr`** — `install/helpers/fedora-first-party.sh` installs into

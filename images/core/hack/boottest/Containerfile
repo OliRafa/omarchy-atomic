@@ -1,0 +1,20 @@
+# CI / on-device overlay on top of the real omarchy-atomic core image. It adds a gated
+# boot-smoke unit so a boot test can assert in-guest state (running Asahi kernel, sddm,
+# NetworkManager, the omarchy tree + first-party tools) over the serial console — nothing
+# test-related lands in the shipped image.
+#
+# Build context is the repo root; base tag is the core image you built:
+#   docker build -t omarchy-atomic-core:44-boottest \
+#     --build-arg BASE=omarchy-atomic-core:44 \
+#     -f images/core/hack/boottest/Containerfile .
+#
+# Then deploy the -boottest image on real Apple Silicon (or an Asahi VM) and read the
+# verdict from `journalctl -u omarchy-boottest` or the serial console: "BOOT SMOKE: PASS".
+ARG BASE=omarchy-atomic-core:44
+FROM ${BASE}
+
+COPY images/core/hack/boot-smoke.sh /usr/libexec/omarchy-boot-smoke
+COPY images/core/hack/boottest/omarchy-boottest.service /usr/lib/systemd/system/omarchy-boottest.service
+RUN chmod +x /usr/libexec/omarchy-boot-smoke \
+ && systemctl enable omarchy-boottest.service \
+ && bootc container lint
