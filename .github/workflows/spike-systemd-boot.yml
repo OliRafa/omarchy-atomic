@@ -1,0 +1,81 @@
+name: Spike systemd-boot
+
+# Explores booting the omarchy-atomic core via systemd-boot instead of GRUB on Apple Silicon.
+# Mirrors the ultron-os boot test's *pre-boot* half: build -> `bootc install to-disk
+# --bootloader systemd` -> inspect the ESP with guestfish. It does NOT boot the disk in qemu —
+# the Fedora Asahi kernel-16k is Apple-Silicon-specific and won't boot generically; that step
+# stays an on-hardware check (images/spike-systemd-boot/README.md).
+on:
+  push:
+    paths: ['images/spike-systemd-boot/**', 'images/core/**', '.github/workflows/spike-systemd-boot.yml']
+  workflow_dispatch:
+
+concurrency:
+  group: spike-systemd-boot-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  esp-check:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free up runner disk
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache 2>/dev/null || true
+          df -h /
+
+      - name: Install podman, libguestfs, btrfs
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends podman libguestfs-tools btrfs-progs qemu-utils
+          sudo chmod 0644 /boot/vmlinuz-* || true   # libguestfs direct backend reads the host kernel
+
+      - name: Build core + systemd-boot spike into podman storage
+        run: |
+          sudo podman build -t localhost/omarchy-atomic-core:44 -f images/core/Containerfile .
+          sudo podman build -t localhost/omarchy-atomic-sdboot:44 \
+            --build-arg BASE=localhost/omarchy-atomic-core --build-arg TAG=44 \
+            -f images/spike-systemd-boot/Containerfile .
+
+      - name: bootc install to-disk (composefs-native + systemd-boot)
+        run: |
+          mkdir -p "$RUNNER_TEMP/out"
+          truncate -s 10G "$RUNNER_TEMP/out/disk.raw"
+          sudo podman run --rm --privileged --pid=host \
+            --security-opt label=type:unconfined_t \
+            -v /var/lib/containers:/var/lib/containers \
+            -v /dev:/dev \
+            -v "$RUNNER_TEMP/out":/output \
+            localhost/omarchy-atomic-sdboot:44 \
+            bootc install to-disk \
+              --composefs-backend --bootloader systemd --filesystem btrfs \
+              --generic-image --via-loopback --wipe \
+              /output/disk.raw
+          sudo chown "$(id -u):$(id -g)" "$RUNNER_TEMP/out/disk.raw"
+
+      - name: Assert ESP has systemd-boot and NO grub
+        env:
+          LIBGUESTFS_BACKEND: direct
+        run: |
+          IMG="$RUNNER_TEMP/out/disk.raw"
+          esp=$(guestfish --ro -a "$IMG" <<'EOF' | awk -F': ' '$2=="vfat"{print $1; exit}'
+          run
+          list-filesystems
+          EOF
+          )
+          echo "ESP partition: $esp"
+          [ -n "$esp" ] || { echo "FAIL: no vfat ESP found"; exit 1; }
+          echo "--- /EFI tree ---"; virt-ls -a "$IMG" -m "$esp" -R /EFI || true
+          sd=false; grub=false
+          [ "$(guestfish --ro -a "$IMG" -m "$esp" exists /EFI/systemd/systemd-bootaa64.efi)" = true ] && sd=true
+          [ "$(guestfish --ro -a "$IMG" -m "$esp" exists /EFI/BOOT/BOOTAA64.EFI)" = true ] && sd=true
+          [ "$(guestfish --ro -a "$IMG" -m "$esp" exists /EFI/fedora/grubaa64.efi)" = true ] && grub=true
+          $sd   && echo "OK: systemd-boot present on ESP"   || { echo "FAIL: systemd-boot missing"; exit 1; }
+          $grub && { echo "FAIL: grub present on ESP"; exit 1; } || echo "OK: no grub on ESP"
+
+      - name: Upload disk metadata
+        if: always()
+        run: |
+          ls -la "$RUNNER_TEMP/out" || true

@@ -1,0 +1,32 @@
+# SPIKE: systemd-boot instead of GRUB on the omarchy-atomic core image (Apple Silicon).
+#
+# Reduces uncertainty on whether a Fedora Asahi bootc image can boot via systemd-boot rather
+# than GRUB (like home-servers-setup/ultron-os does on amd64). Upstream fedora-asahi-atomic
+# (images#2) AND bazzite (ublue-os/bazzite#2155) both stay on GRUB+bootupd, so this is
+# unproven territory — hence a spike.
+#
+# Architecture: on Asahi, m1n1 -> U-Boot(UEFI) loads /EFI/BOOT/BOOTAA64.EFI (the removable
+# path). That EFI binary can be systemd-boot instead of GRUB, and the devicetree is provided
+# by m1n1 via UEFI either way — so systemd-boot doesn't have to manage the DT.
+#
+# The bootloader is chosen at INSTALL time (systemd-boot needs the composefs-native backend;
+# the ostree backend requires bootupd/GRUB):
+#   bootc install to-disk --composefs-backend --bootloader systemd --filesystem btrfs ...
+#
+# Validated by CI (images/../.github spike workflow): image builds, `bootc container lint`
+# passes, and `bootc install to-disk --bootloader systemd` lands systemd-boot (no GRUB) on the
+# ESP. NOT validated (needs real Apple Silicon): U-Boot -> systemd-boot -> Asahi kernel boots
+# with a correct devicetree.
+ARG BASE=omarchy-atomic-core
+ARG TAG=44
+FROM ${BASE}:${TAG}
+
+RUN set -eux; \
+    dnf -y install systemd-boot-unsigned; \
+    # Best-effort: drop GRUB + bootupd so the image is systemd-boot-only. If a dependency
+    # keeps them, `bootc install --bootloader systemd` still selects systemd-boot.
+    dnf -y remove grub2-efi-aa64 grub2-efi-aa64-modules bootupd 2>/dev/null || true; \
+    dnf clean all; \
+    rm -rf /var/cache/dnf /var/cache/libdnf5 /var/lib/dnf/repos /var/lib/dnf/history* \
+           /var/log/dnf5.log* /run/dnf /tmp/* 2>/dev/null || true; \
+    bootc container lint
