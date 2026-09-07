@@ -44,7 +44,22 @@ COPY images/core/files/ /
 RUN rm -rf ${OMARCHY_PREFIX}/.git ${OMARCHY_PREFIX}/images ${OMARCHY_PREFIX}/tests ${OMARCHY_PREFIX}/test \
  && for f in ${OMARCHY_PREFIX}/bin/*; do ln -sf "$f" /usr/bin/"$(basename "$f")"; done
 
-# 5) Core first-party tools (tensaku, voxtype, tobi-try, hyprland-preview-share-picker).
+# 5) Asahi + atomic: update-m1n1 is a MANUAL step on bootc, and by default reads the STATIC
+#    devicetree in /boot rather than the image's — so a kernel devicetree change (e.g. the
+#    6.19 USB DT change) boots stale and breaks hardware. Point DTBS at the image's
+#    devicetree and enable omarchy-apply-m1n1.service (runs update-m1n1 once per kernel).
+#    A no-op on non-Asahi machines (the unit self-skips).
+RUN set -eux; \
+    mkdir -p /etc/sysconfig; f=/etc/sysconfig/update-m1n1; touch "$f"; \
+    if grep -q '^DTBS=' "$f"; then \
+      sed -i 's|^DTBS=.*|DTBS="/usr/lib/modules/$(uname -r)/dtb"|' "$f"; \
+    else \
+      printf 'DTBS="/usr/lib/modules/$(uname -r)/dtb"\n' >>"$f"; \
+    fi; \
+    chmod +x /usr/libexec/omarchy-apply-m1n1; \
+    systemctl enable omarchy-apply-m1n1.service
+
+# 6) Core first-party tools (tensaku, voxtype, tobi-try, hyprland-preview-share-picker).
 #    The app-like first-party tools (aether/cliamp/omacut/omawrite) are deliberately NOT
 #    here — they belong to the preinstalls image.
 #    NOTE (bootc): the upstream helper installs into /usr/local/bin, which is /var-backed
@@ -59,7 +74,7 @@ RUN if [ "$WITH_FIRST_PARTY" = "1" ]; then \
       dnf clean all; \
     fi
 
-# 6) Clear build residue so the image is bootc-clean (no content in /run, /tmp, /var/log,
+# 7) Clear build residue so the image is bootc-clean (no content in /run, /tmp, /var/log,
 #    or dnf caches — these otherwise trip nonempty-run-tmp / var-log / var-tmpfiles lints).
 # Target specific residue dirs, not /run/* wholesale: docker bind-mounts
 # /run/systemd/resolve/stub-resolv.conf for build DNS, which cannot be removed.

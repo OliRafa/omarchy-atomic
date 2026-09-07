@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# Apply m1n1 + the image's devicetree to the boot partition on an atomic Asahi install.
+#
+# Why this exists: on a mutable Asahi Fedora install, `update-m1n1` runs automatically on
+# kernel updates. On bootc/atomic it does NOT — and worse, by default it reads the STATIC
+# devicetree in /boot rather than the one shipped in the image, so a kernel devicetree
+# change (e.g. the 6.19 USB DT change) boots with a stale DT and breaks hardware.
+#
+# The image build points DTBS at /usr/lib/modules/$(uname -r)/dtb (the image's DT, see the
+# Containerfile), and this unit runs update-m1n1 once per kernel so the boot partition's
+# m1n1 + devicetree track the running image.
+#
+# Reboot semantics are inherent to Asahi: after `bootc upgrade` + reboot you are on the NEW
+# kernel but the boot partition still holds the OLD m1n1/DT; this applies the new one, which
+# only takes effect on the NEXT boot. Set OMARCHY_M1N1_AUTOREBOOT=1 (via
+# /etc/default/omarchy-m1n1) to reboot automatically when it changed.
+#
+# Neither the fedora-asahi-remix-atomic-desktops base nor bazzite handle this today.
+set -uo pipefail
+
+command -v update-m1n1 >/dev/null 2>&1 || exit 0     # not a Fedora Asahi machine
+[ "$(uname -m)" = aarch64 ] || exit 0
+
+stamp=/var/lib/omarchy/m1n1-applied
+cur="$(uname -r)"
+mkdir -p "$(dirname "$stamp")"
+[ "$(cat "$stamp" 2>/dev/null)" = "$cur" ] && exit 0  # already applied for this kernel
+
+echo "omarchy-apply-m1n1: applying m1n1 + devicetree for kernel $cur"
+if ! update-m1n1; then
+  echo "omarchy-apply-m1n1: update-m1n1 failed" >&2
+  exit 1
+fi
+printf '%s\n' "$cur" >"$stamp"
+
+if [ "${OMARCHY_M1N1_AUTOREBOOT:-0}" = 1 ]; then
+  echo "omarchy-apply-m1n1: rebooting to boot with the new devicetree"
+  systemctl reboot
+else
+  echo "omarchy-apply-m1n1: new m1n1/devicetree staged — reboot once to apply it" \
+       "(set OMARCHY_M1N1_AUTOREBOOT=1 in /etc/default/omarchy-m1n1 to automate)."
+fi

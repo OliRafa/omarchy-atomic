@@ -55,6 +55,34 @@ Silicon, so the ultron-os-style qemu boot test isn't possible in generic CI.
   the image (first-party on, `bootc container lint` in-build), runs the container smoke test,
   and builds the boot-test overlay.
 
+## Asahi: m1n1 & devicetree on atomic
+
+The Asahi bootloader (m1n1) and the machine devicetree are updated by `update-m1n1`, which
+on a *mutable* install runs automatically on kernel updates. On bootc/atomic it does **not**,
+and — worse — by default it reads the **static** devicetree in `/boot` rather than the one
+shipped in the image. A kernel devicetree change (e.g. the 6.19 USB DT change) then boots
+stale and breaks hardware. This is the unsolved half of
+[images#2](https://github.com/fedora-asahi-remix-atomic-desktops/images/issues/2); neither
+the base project nor bazzite handle it.
+
+The core image fixes both:
+- **Build time:** `DTBS` in `/etc/sysconfig/update-m1n1` is repointed to
+  `/usr/lib/modules/$(uname -r)/dtb` (the image's DT, not `/boot`).
+- **Run time:** `omarchy-apply-m1n1.service` runs `update-m1n1` **once per kernel** so the
+  boot partition's m1n1 + DT track the running image.
+
+Update flow (two reboots are inherent to Asahi — reboot #1 lands you on the new kernel so
+`/usr/lib` has the new DT; reboot #2 boots with it):
+
+```sh
+sudo bootc upgrade && reboot     # onto the new image
+# omarchy-apply-m1n1.service applies the new m1n1/DT on that boot...
+reboot                           # ...and this boot uses it
+```
+
+Set `OMARCHY_M1N1_AUTOREBOOT=1` in `/etc/default/omarchy-m1n1` to make the service do reboot
+#2 automatically when the DT changed.
+
 ## Known bootc follow-ups (tracked; not blockers for the core build)
 
 - **`/usr/local` vs `/usr`** — `install/helpers/fedora-first-party.sh` installs into

@@ -62,6 +62,13 @@ mimes=/usr/share/omarchy/default/applications/mimeapps.list
 grep -q 'com.brave.Browser.desktop' "$mimes" 2>/dev/null && ok "http(s) -> Brave" || no "browser mime not repointed"
 grep -q 'org.gnome.Loupe.desktop'   "$mimes" 2>/dev/null && ok "images -> Loupe"  || no "image mime not repointed"
 
+echo "== Asahi m1n1 / devicetree (atomic) =="
+grep -Eq 'DTBS=.*/usr/lib/modules/.*dtb' /etc/sysconfig/update-m1n1 2>/dev/null \
+  && ok "update-m1n1 DTBS -> image devicetree" || no "update-m1n1 DTBS not pointed at /usr/lib/modules"
+[ -x /usr/libexec/omarchy-apply-m1n1 ] && ok "omarchy-apply-m1n1 helper present" || no "omarchy-apply-m1n1 missing"
+[ -L /etc/systemd/system/multi-user.target.wants/omarchy-apply-m1n1.service ] \
+  && ok "omarchy-apply-m1n1.service enabled" || no "omarchy-apply-m1n1.service not enabled"
+
 echo
 if [ "$fail" = 0 ]; then echo "CONTAINER SMOKE: PASS"; else echo "CONTAINER SMOKE: FAIL"; fi
 exit "$fail"

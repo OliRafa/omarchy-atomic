@@ -38,6 +38,13 @@ for b in tensaku voxtype try hyprland-preview-share-picker; do
   command -v "$b" >/dev/null 2>&1 && ok "$b" || no "$b missing"
 done
 
+echo "== m1n1 / devicetree applied for the running kernel =="
+grep -Eq 'DTBS=.*/usr/lib/modules/.*dtb' /etc/sysconfig/update-m1n1 2>/dev/null \
+  && ok "update-m1n1 DTBS -> image devicetree" || no "update-m1n1 DTBS not pointed at the image DT"
+[ "$(cat /var/lib/omarchy/m1n1-applied 2>/dev/null)" = "$(uname -r)" ] \
+  && ok "m1n1/devicetree applied for $(uname -r)" \
+  || no "m1n1 not yet applied for the running kernel — reboot once (omarchy-apply-m1n1)"
+
 echo "== immutability invariants =="
 [ -L /usr/local ] && ok "/usr/local is a symlink (nothing baked there)" || no "/usr/local not a symlink"
 enforce="$(getenforce 2>/dev/null || echo unknown)"
