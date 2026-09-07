@@ -1,17 +1,17 @@
 [Default Applications]
 inode/directory=org.gnome.Nautilus.desktop
 
-image/png=imv.desktop
-image/jpeg=imv.desktop
-image/gif=imv.desktop
-image/webp=imv.desktop
-image/bmp=imv.desktop
-image/tiff=imv.desktop
+image/png=org.gnome.Loupe.desktop
+image/jpeg=org.gnome.Loupe.desktop
+image/gif=org.gnome.Loupe.desktop
+image/webp=org.gnome.Loupe.desktop
+image/bmp=org.gnome.Loupe.desktop
+image/tiff=org.gnome.Loupe.desktop
 
 application/pdf=org.gnome.Evince.desktop
 
-x-scheme-handler/http=chromium.desktop
-x-scheme-handler/https=chromium.desktop
+x-scheme-handler/http=com.brave.Browser.desktop
+x-scheme-handler/https=com.brave.Browser.desktop
 x-scheme-handler/mailto=HEY.desktop
 
 video/mp4=mpv.desktop

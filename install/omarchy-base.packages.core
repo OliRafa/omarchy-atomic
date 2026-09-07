@@ -1,0 +1,192 @@
+# omarchy-atomic — CORE base image package list (Fedora aarch64 / Asahi)
+#
+# This is the immutable-base subset of omarchy-base.packages.fedora +
+# omarchy-other.packages.fedora. It contains only what the OS needs to boot,
+# render, authenticate, network, and run Omarchy's own always-loaded tooling
+# and shell config out of the box.
+#
+# User applications are delivered on the writable layer instead:
+#   - GUI apps      -> install/flatpaks   (Flathub)
+#   - CLI / dev     -> Brewfile           (Homebrew)
+# See docs/immutability/core-vs-apps.md for the rationale and the callsite
+# repoints required before removing browser/imv/mpv/nautilus from the base.
+#
+# Inclusion rule: a package is CORE if the shipped desktop or an always-loaded
+# Omarchy config/menu depends on it. On-demand tools go to Flatpak/brew.
+
+# --- Desktop: Hyprland stack (lionheartp COPR; compositor picked by fedora-hyprland.sh) ---
+hyprland-qt-support
+hyprland-guiutils
+hyprsunset
+hyprpicker
+xdg-desktop-portal-hyprland
+xdg-desktop-portal-gtk
+uwsm
+
+# --- Desktop: Quickshell shell (bar/launcher/notifications/OSD/lock) ---
+quickshell
+
+# --- Desktop: capture (DE feature + tooling deps: grim/slurp/tesseract used by keybindings) ---
+gpu-screen-recorder
+wf-recorder
+grim
+slurp
+
+# --- Desktop: misc + graphics ---
+wl-clipboard
+wtype
+xdg-user-dirs
+qt5-qtwayland
+qt6-qtwayland
+mesa-vulkan-drivers
+yaru-icon-theme
+yaru-gtk3-theme
+yaru-gtk4-theme
+yaru-gtksourceview-theme
+
+# --- Terminals (DE-integral, launched by keybindings) ---
+xdg-terminal-exec
+alacritty
+foot
+
+# --- Shell & CLI: only tools wired into always-loaded config/menus stay core ---
+# starship = prompt; eza/bat/zoxide = default aliases; fastfetch = about/branding;
+# btop = system-monitor menu; fzf/ripgrep/fd/jq/gum + libxkbcommon-utils/perl-JSON-PP
+# = menu & keybinding plumbing; chafa = terminal image previews.
+starship
+eza
+bat
+zoxide
+fastfetch
+btop
+fzf
+ripgrep
+fd-find
+jq
+gum
+chafa
+libxkbcommon-utils
+perl-JSON-PP
+socat
+inotify-tools
+less
+man-db
+plocate
+unzip
+util-linux-script
+
+# --- Version control (Omarchy self-updates via git) ---
+git
+
+# --- Media/imaging tooling deps (used by capture/theme/menu scripts, not user-facing apps) ---
+ImageMagick
+tesseract
+tesseract-langpack-eng
+ffmpegthumbnailer
+mpv                         # media engine: v4l2 webcam overlay for capture + playback; Flatpak sandbox breaks the webcam path
+mpv-mpris                   # MPRIS bridge so the shell's media panel sees mpv
+
+# --- Containers (kept core by decision: system daemon, not a Flatpak/brew fit) ---
+moby-engine
+docker-compose
+docker-buildx
+
+# --- System services ---
+brightnessctl
+pamixer
+alsa-utils
+wireplumber
+pulseaudio-utils
+pipewire-pulseaudio
+bluez
+bluez-tools
+plymouth
+cups
+cups-browsed
+cups-filters
+cups-pdf
+system-config-printer
+nss-mdns
+avahi
+bolt
+power-profiles-daemon
+firewalld
+python3-pip
+python3-gobject
+flatpak
+NetworkManager
+NetworkManager-tui
+nm-connection-editor
+snapper
+btrfs-assistant
+python3-dnf-plugin-snapper
+dosfstools
+exfatprogs
+wireless-regdb
+libsecret
+gnome-keyring
+gvfs-mtp
+gvfs-nfs
+gvfs-smb
+udiskie
+gnome-disk-utility          # GUI front-end to the system udisks2 daemon; not in Flatpak/brew, so it lives in core
+nautilus                    # file manager: not published on Flathub (404) + launched as a native binary by omarchy scripts
+sushi                       # nautilus previewer (spacebar quick-look)
+
+# --- Display manager ---
+sddm
+
+# --- Fonts ---
+google-noto-fonts-common
+google-noto-sans-fonts
+google-noto-sans-cjk-fonts
+google-noto-emoji-fonts
+google-noto-color-emoji-fonts
+jetbrains-mono-fonts
+cascadia-mono-nf-fonts
+fontawesome4-fonts
+fontawesome-fonts-web
+terminus-fonts-console
+
+# --- Input methods ---
+fcitx5
+fcitx5-gtk
+fcitx5-qt5
+fcitx5-qt6
+
+# --- Image decoders (webp): qt6-qtimageformats for the Quickshell/Qt shell, glycin for GTK4 ---
+qt6-qtimageformats
+glycin-loaders
+
+# --- First-party tool runtime deps (tools themselves built by fedora-first-party.sh) ---
+webkit2gtk4.1
+gtk3
+gtk-layer-shell
+gtk4-layer-shell
+gstreamer1
+gstreamer1-plugins-good
+ffmpeg-free
+alsa-lib
+qt6-qtbase
+qt6-qtdeclarative
+qt6-qtmultimedia
+hicolor-icon-theme
+libadwaita
+libepoxy
+fontconfig
+gtk4
+xdg-desktop-portal
+
+# --- Build tooling (needed at image-build time for first-party source builds) ---
+@development-tools
+autoconf-archive
+
+# --- Boot / storage / hardware (Fedora Asahi) ---
+btrfs-progs
+egl-wayland
+pipewire-gstreamer
+pulseaudio-libs
+wpa_supplicant
+tiny-dfr
+wget2-wget
+zram-generator

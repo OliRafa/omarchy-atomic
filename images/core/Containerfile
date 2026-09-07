@@ -1,0 +1,85 @@
+# omarchy-atomic — CORE bootc image (Fedora Asahi Remix · Apple Silicon / aarch64)
+#
+# Layers the Omarchy Hyprland "core" onto the Fedora Asahi Remix base-atomic image,
+# which already ships the Asahi kernel (kernel-16k), Apple firmware, u-boot/m1n1 glue
+# and dracut. We add only what install/omarchy-base.packages.core defines, plus the
+# CORE first-party tools. User apps (Flatpak/brew) and the removable preinstalls
+# (aether/cliamp/omacut/omawrite) live in a SEPARATE image, built later. See
+# images/README.md.
+#
+# Build on a native aarch64 (Apple Silicon) host:
+#   ./images/build.sh                    # full
+#   WITH_FIRST_PARTY=0 ./images/build.sh # faster: validate the package set only
+
+ARG BASE=quay.io/fedora-asahi-remix-atomic-desktops/base-atomic
+ARG FEDORA=44
+FROM ${BASE}:${FEDORA}
+
+ARG OMARCHY_PREFIX=/usr/share/omarchy
+ARG WITH_FIRST_PARTY=1
+ENV OMARCHY_PATH=${OMARCHY_PREFIX}
+
+# 1) Repos — COPRs from install/helpers/fedora-copr.sh (source of truth). lionheartp/Hyprland
+#    is the Asahi-safe Hyprland stack; atim/starship + atim/lazygit provide CLI tools missing
+#    from Fedora proper. Optional COPRs are best-effort.
+RUN dnf -y install dnf-plugins-core \
+ && for repo in lionheartp/Hyprland atim/starship atim/lazygit; do dnf -y copr enable "$repo"; done \
+ && for repo in nclundell/fedora-extras scottames/ghostty; do dnf -y copr enable "$repo" || true; done \
+ && dnf clean all
+
+# 2) Compositor — the manifest deliberately omits it (fedora-hyprland.sh picks at install
+#    time). Prefer stable; fall back to -git when a soname bump leaves stable unresolvable.
+RUN dnf -y install hyprland || dnf -y install hyprland-git
+
+# 3) Core package set — strip inline comments + blank lines from the manifest, then install.
+COPY install/omarchy-base.packages.core /tmp/core.packages
+RUN dnf -y install $(sed 's/#.*//' /tmp/core.packages | awk 'NF') \
+ && dnf clean all \
+ && rm -f /tmp/core.packages
+
+# 4) The Omarchy tree + system hooks. bin/* is symlinked into /usr/bin (immutable /usr,
+#    the bootc-correct location) so omarchy-* commands resolve in every context.
+COPY . ${OMARCHY_PREFIX}
+COPY images/core/files/ /
+RUN rm -rf ${OMARCHY_PREFIX}/.git ${OMARCHY_PREFIX}/images ${OMARCHY_PREFIX}/tests ${OMARCHY_PREFIX}/test \
+ && for f in ${OMARCHY_PREFIX}/bin/*; do ln -sf "$f" /usr/bin/"$(basename "$f")"; done
+
+# 5) Asahi + atomic: update-m1n1 is a MANUAL step on bootc, and by default reads the STATIC
+#    devicetree in /boot rather than the image's — so a kernel devicetree change (e.g. the
+#    6.19 USB DT change) boots stale and breaks hardware. Point DTBS at the image's
+#    devicetree and enable omarchy-apply-m1n1.service (runs update-m1n1 once per kernel).
+#    A no-op on non-Asahi machines (the unit self-skips).
+RUN set -eux; \
+    mkdir -p /etc/sysconfig; f=/etc/sysconfig/update-m1n1; touch "$f"; \
+    if grep -q '^DTBS=' "$f"; then \
+      sed -i 's|^DTBS=.*|DTBS="/usr/lib/modules/$(uname -r)/dtb"|' "$f"; \
+    else \
+      printf 'DTBS="/usr/lib/modules/$(uname -r)/dtb"\n' >>"$f"; \
+    fi; \
+    chmod +x /usr/libexec/omarchy-apply-m1n1; \
+    systemctl enable omarchy-apply-m1n1.service
+
+# 6) Core first-party tools (tensaku, voxtype, tobi-try, hyprland-preview-share-picker).
+#    The app-like first-party tools (aether/cliamp/omacut/omawrite) are deliberately NOT
+#    here — they belong to the preinstalls image.
+#    NOTE (bootc): the upstream helper installs into /usr/local/bin, which is /var-backed
+#    on bootc; a follow-up should retarget it to /usr. Best-effort per tool.
+RUN if [ "$WITH_FIRST_PARTY" = "1" ]; then \
+      dnf -y install sudo >/dev/null 2>&1 || true; \
+      OMARCHY_INSTALL=${OMARCHY_PREFIX}/install \
+      OMARCHY_FIRST_PARTY_PREFIX=/usr \
+      HOME=/var/tmp/fp CARGO_HOME=/var/tmp/fp/cargo \
+        bash ${OMARCHY_PREFIX}/install/helpers/fedora-first-party.sh core || true; \
+      rm -rf /var/tmp/fp; \
+      dnf clean all; \
+    fi
+
+# 7) Clear build residue so the image is bootc-clean (no content in /run, /tmp, /var/log,
+#    or dnf caches — these otherwise trip nonempty-run-tmp / var-log / var-tmpfiles lints).
+# Target specific residue dirs, not /run/* wholesale: docker bind-mounts
+# /run/systemd/resolve/stub-resolv.conf for build DNS, which cannot be removed.
+RUN rm -rf /var/cache/dnf /var/cache/libdnf5 /var/lib/dnf/repos /var/lib/dnf/history* \
+ && rm -f /var/log/dnf5.log* /var/log/dnf.log* /var/log/hawkey.log* \
+ && rm -rf /run/dnf /run/sddm /run/svnserve /tmp/* \
+ && bootc container lint
+

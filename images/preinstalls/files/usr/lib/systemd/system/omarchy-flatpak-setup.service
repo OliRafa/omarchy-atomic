@@ -1,0 +1,13 @@
+[Unit]
+Description=Install the omarchy-atomic Flatpak app set (first boot)
+After=network-online.target
+Wants=network-online.target
+# Retries each boot until every app is present (the script stamps done only when complete).
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/omarchy-flatpak-setup
+
+[Install]
+WantedBy=multi-user.target

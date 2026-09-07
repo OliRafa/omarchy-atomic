@@ -1,0 +1,16 @@
+[Unit]
+Description=omarchy-atomic boot smoke test (CI / on-device only)
+After=multi-user.target sddm.service NetworkManager.service
+Wants=sddm.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Route results to the serial console so an out-of-band reader (or `journalctl`) can
+# see the verdict without logging into the session.
+StandardOutput=journal+console
+StandardError=journal+console
+ExecStart=/usr/libexec/omarchy-boot-smoke
+
+[Install]
+WantedBy=multi-user.target

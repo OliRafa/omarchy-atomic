@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# First-boot provisioning: install Homebrew (Linuxbrew) + the omarchy-atomic Brewfile.
+#
+# Homebrew needs a writable prefix and a non-root owner, so it cannot live in the immutable
+# image — this installs it once for the primary user, into the shared /home/linuxbrew prefix
+# (which is /var-backed and persists). Retries on later boots until a primary user exists.
+# Same first-boot pattern uBlue/Bluefin use for brew.
+#
+# NOTE: needs on-hardware validation — running the upstream installer + `brew bundle` at first
+# boot depends on network, and some aarch64 formulae may build from source (slow first boot).
+set -uo pipefail
+
+BREWFILE=/usr/share/omarchy-atomic/Brewfile
+STAMP=/var/lib/omarchy/brew-setup-done
+PREFIX=/home/linuxbrew/.linuxbrew
+BREW="$PREFIX/bin/brew"
+
+[ -f "$BREWFILE" ] || { echo "brew-setup: no Brewfile at $BREWFILE"; exit 0; }
+[ -f "$STAMP" ] && exit 0
+
+# Primary user = lowest uid in [1000,65000) with a real login shell.
+read -r uid user < <(getent passwd | awk -F: '$3>=1000 && $3<65000 && $7 !~ /nologin|false/ {print $3, $2}' | sort -n | head -1)
+if [ -z "${user:-}" ]; then
+  echo "brew-setup: no primary user yet; will retry next boot"
+  exit 0   # no stamp -> retry
+fi
+group="$(id -gn "$user")"
+
+if [ ! -x "$BREW" ]; then
+  echo "brew-setup: installing Homebrew for $user"
+  # Pre-create the prefix owned by the user so the installer doesn't need interactive sudo.
+  install -d -m0755 -o "$user" -g "$group" /home/linuxbrew "$PREFIX"
+  su - "$user" -c 'NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"' \
+    || { echo "brew-setup: Homebrew install failed" >&2; exit 1; }
+fi
+
+echo "brew-setup: applying $BREWFILE"
+su - "$user" -c "eval \"\$('$BREW' shellenv)\"; brew bundle --file='$BREWFILE'" \
+  || { echo "brew-setup: brew bundle failed" >&2; exit 1; }
+
+mkdir -p "$(dirname "$STAMP")"; date -u +%FT%TZ >"$STAMP"
+echo "brew-setup: done"

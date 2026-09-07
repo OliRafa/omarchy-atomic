@@ -1,0 +1,18 @@
+[Unit]
+Description=Apply m1n1 + devicetree from the atomic image to the boot partition (Asahi)
+Documentation=https://github.com/fedora-asahi-remix-atomic-desktops/images/issues/2
+# /boot and /usr must be present; ordered late so it never blocks the boot it runs in.
+After=local-fs.target
+# No ConditionPathExists for update-m1n1: it may live in /usr/bin or /usr/sbin. The
+# ExecStart script self-skips (exit 0) on non-Asahi machines instead.
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Optional: create /etc/default/omarchy-m1n1 with OMARCHY_M1N1_AUTOREBOOT=1 to auto-reboot
+# once when a new devicetree is staged.
+EnvironmentFile=-/etc/default/omarchy-m1n1
+ExecStart=/usr/libexec/omarchy-apply-m1n1
+
+[Install]
+WantedBy=multi-user.target

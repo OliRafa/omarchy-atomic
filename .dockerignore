@@ -1,0 +1,10 @@
+# Keep the build context small and the in-image tree clean.
+# (images/ is NOT ignored: images/core/files/ is COPYed into the image.)
+.git
+.github
+docs
+tests
+test
+plans
+*.stat
+*.log

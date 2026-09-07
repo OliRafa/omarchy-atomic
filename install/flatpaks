@@ -1,0 +1,31 @@
+# omarchy-atomic — GUI user applications delivered via Flatpak (Flathub)
+# Format: one Flatpak app-id per line. Installed onto the writable layer, NOT
+# baked into the immutable base image.
+#
+# IDs marked "TODO verify" need confirming against Flathub before first use.
+
+# --- Browser (was: chromium in core). User's default is Brave; also hosts web-apps. ---
+# Repointed: bin/omarchy-launch-webapp is flatpak-aware, and mimeapps.list http(s) ->
+# com.brave.Browser.desktop.
+com.brave.Browser
+# alternates:
+# org.chromium.Chromium
+# org.mozilla.firefox
+
+# --- Lightweight default apps (moved out of core) ---
+org.gnome.Evince            # PDF viewer (flatpak desktop-id matches native, so no mimeapps repoint)
+org.gnome.Calculator
+org.gnome.Loupe             # image viewer, replaces imv. Repointed: mimeapps.list + hypr/apps/system.lua
+
+# Kept NATIVE in core instead of Flatpak (see install/omarchy-base.packages.core):
+#   nautilus            - not published on Flathub (404) + launched as a native binary
+#   mpv / mpv-mpris     - media engine for the v4l2 webcam overlay + shell MPRIS panel
+#   gnome-disk-utility  - fronts the system udisks2 daemon; in neither Flatpak nor brew
+
+# --- Heavier creative / office / notes apps ---
+com.obsproject.Studio       # obs-studio (also fixes aarch64: was in omarchy-aarch64-unavailable)
+org.kde.kdenlive
+com.github.PintaProject.Pinta   # pinta (also fixes aarch64)
+com.github.xournalpp.xournalpp
+org.libreoffice.LibreOffice
+md.obsidian.Obsidian        # obsidian (also fixes aarch64 AUR naming trap)

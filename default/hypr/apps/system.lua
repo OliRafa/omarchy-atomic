@@ -4,7 +4,7 @@ o.window({ tag = "floating-window" }, { center = true })
 o.window({ tag = "floating-window" }, { size = { 875, 600 } })
 
 o.window(
-  "(org.omarchy.btop|org.omarchy.terminal|org.omarchy.bash|org.codeberg.dnkl.foot|org.gnome.NautilusPreviewer|org.gnome.Evince|Omarchy|About|TUI.float|imv|mpv)",
+  "(org.omarchy.btop|org.omarchy.terminal|org.omarchy.bash|org.codeberg.dnkl.foot|org.gnome.NautilusPreviewer|org.gnome.Evince|Omarchy|About|TUI.float|imv|org.gnome.Loupe|mpv)",
   {
     tag = "+floating-window",
   }
@@ -38,13 +38,13 @@ o.window("org.omarchy.screensaver", { animation = "slide" })
 
 -- No transparency on media windows.
 o.window(
-  "^(zoom|vlc|mpv|org.kde.kdenlive|com.obsproject.Studio|com.github.PintaProject.Pinta|imv|org.gnome.NautilusPreviewer)$",
+  "^(zoom|vlc|mpv|org.kde.kdenlive|com.obsproject.Studio|com.github.PintaProject.Pinta|imv|org.gnome.Loupe|org.gnome.NautilusPreviewer)$",
   {
     tag = "-default-opacity",
   }
 )
 o.window(
-  "^(zoom|vlc|mpv|org.kde.kdenlive|com.obsproject.Studio|com.github.PintaProject.Pinta|imv|org.gnome.NautilusPreviewer)$",
+  "^(zoom|vlc|mpv|org.kde.kdenlive|com.obsproject.Studio|com.github.PintaProject.Pinta|imv|org.gnome.Loupe|org.gnome.NautilusPreviewer)$",
   {
     opacity = "1 1",
   }
