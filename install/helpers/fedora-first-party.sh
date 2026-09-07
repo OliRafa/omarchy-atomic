@@ -226,13 +226,32 @@ install_share_picker() {
   rm -rf "$tmp"
 }
 
-install_aether || true
-install_cliamp || true
-install_tensaku || true
-install_voxtype || true
-install_tobi_try || true
-install_omacut || true
-install_omawrite || true
-install_share_picker || true
+# Tier selection so the bootc CORE image bakes only the tools that belong in the
+# immutable base, while the app-like first-party tools go to the separate preinstalls
+# image. Default "all" preserves the classic (non-bootc) install-path behaviour.
+#   core        -> tensaku, voxtype, tobi-try, hyprland-preview-share-picker
+#   preinstalls -> aether, cliamp, omacut, omawrite   (removable per omarchy-*-preinstalls)
+#   all         -> both (default)
+TIER="${1:-all}"
 
-echo "[first-party] done"
+install_first_party_core() {
+  install_tensaku || true
+  install_voxtype || true
+  install_tobi_try || true
+  install_share_picker || true
+}
+
+install_first_party_preinstalls() {
+  install_aether || true
+  install_cliamp || true
+  install_omacut || true
+  install_omawrite || true
+}
+
+case "$TIER" in
+  core)        install_first_party_core ;;
+  preinstalls) install_first_party_preinstalls ;;
+  all | *)     install_first_party_core; install_first_party_preinstalls ;;
+esac
+
+echo "[first-party] done (tier=$TIER)"
