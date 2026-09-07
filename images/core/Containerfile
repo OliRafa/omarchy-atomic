@@ -19,9 +19,12 @@ ARG OMARCHY_PREFIX=/usr/share/omarchy
 ARG WITH_FIRST_PARTY=1
 ENV OMARCHY_PATH=${OMARCHY_PREFIX}
 
-# 1) Repos — the Hyprland stack comes from the lionheartp/Hyprland COPR (Asahi-safe builds).
+# 1) Repos — COPRs from install/helpers/fedora-copr.sh (source of truth). lionheartp/Hyprland
+#    is the Asahi-safe Hyprland stack; atim/starship + atim/lazygit provide CLI tools missing
+#    from Fedora proper. Optional COPRs are best-effort.
 RUN dnf -y install dnf-plugins-core \
- && dnf -y copr enable lionheartp/Hyprland \
+ && for repo in lionheartp/Hyprland atim/starship atim/lazygit; do dnf -y copr enable "$repo"; done \
+ && for repo in nclundell/fedora-extras scottames/ghostty; do dnf -y copr enable "$repo" || true; done \
  && dnf clean all
 
 # 2) Compositor — the manifest deliberately omits it (fedora-hyprland.sh picks at install
@@ -53,5 +56,12 @@ RUN if [ "$WITH_FIRST_PARTY" = "1" ]; then \
       dnf clean all; \
     fi
 
-# 6) bootc sanity. Advisory during the PoC (see images/README.md); make it hard later.
-RUN bootc container lint || echo "[warn] bootc container lint reported issues (advisory in PoC)"
+# 6) Clear build residue so the image is bootc-clean (no content in /run, /tmp, /var/log,
+#    or dnf caches — these otherwise trip nonempty-run-tmp / var-log / var-tmpfiles lints).
+# Target specific residue dirs, not /run/* wholesale: docker bind-mounts
+# /run/systemd/resolve/stub-resolv.conf for build DNS, which cannot be removed.
+RUN rm -rf /var/cache/dnf /var/cache/libdnf5 /var/lib/dnf/repos /var/lib/dnf/history* \
+ && rm -f /var/log/dnf5.log* /var/log/dnf.log* /var/log/hawkey.log* \
+ && rm -rf /run/dnf /run/sddm /run/svnserve /tmp/* \
+ && bootc container lint
+

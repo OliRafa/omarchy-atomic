@@ -33,7 +33,11 @@ ENGINE=podman FEDORA=43 ./images/build.sh
   first-boot service in the preinstalls / user layer.
 - **Full config + systemd integration** — this core image installs packages + tree +
   PATH, not the whole of `install.sh` (login/session/system-file steps). Layer next.
-- **`bootc container lint`** runs advisory here; make it a hard gate once the above land.
+- **`bootc container lint` is a hard gate and passes** (12 checks). One residual
+  `var-tmpfiles` warning remains for package-owned dirs (`/var/lib/plocate`,
+  `/var/lib/power-profiles-daemon`, `/var/spool/cups-pdf`): ship a
+  `/usr/lib/tmpfiles.d` entry for them (they must not simply be deleted — bootc treats
+  `/var` as machine-state and only seeds it on first boot).
 
 ## Deploy / test
 

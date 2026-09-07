@@ -154,8 +154,8 @@ fcitx5-gtk
 fcitx5-qt5
 fcitx5-qt6
 
-# --- Image decoders (webp): qt6-imageformats for the Quickshell/Qt shell, glycin for GTK4 ---
-qt6-imageformats
+# --- Image decoders (webp): qt6-qtimageformats for the Quickshell/Qt shell, glycin for GTK4 ---
+qt6-qtimageformats
 glycin-loaders
 
 # --- First-party tool runtime deps (tools themselves built by fedora-first-party.sh) ---
