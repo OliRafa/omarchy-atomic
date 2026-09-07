@@ -1,0 +1,55 @@
+name: Core image e2e
+
+# Builds the omarchy-atomic CORE image from source (validates the current Containerfile,
+# not whatever is on a registry) and runs the container smoke test. Runs on an aarch64
+# runner because the image is Apple-Silicon / Fedora Asahi (aarch64-only).
+#
+# A full boot test (ultron-os style: bootc install to-disk + qemu) is intentionally NOT
+# here: the Fedora Asahi kernel-16k is Apple-Silicon-specific and does not boot in generic
+# qemu. Boot-time state is covered by images/core/hack/boottest/, run on real Apple Silicon
+# (after `bootc switch`) or an Asahi-capable VM.
+on:
+  push:
+    paths:
+      - 'images/**'
+      - 'install/omarchy-base.packages.core'
+      - 'install/helpers/fedora-first-party.sh'
+      - 'install/flatpaks'
+      - 'Brewfile'
+      - '.github/workflows/core-image-e2e.yml'
+  pull_request:
+    paths:
+      - 'images/**'
+      - 'install/omarchy-base.packages.core'
+      - 'install/helpers/fedora-first-party.sh'
+      - '.github/workflows/core-image-e2e.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: core-image-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  container-smoke:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free up runner disk (the image + base run to ~11 GB)
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache 2>/dev/null || true
+          docker image prune -af 2>/dev/null || true
+          df -h /
+
+      - name: Build core image (first-party on; bootc container lint runs in-build)
+        run: WITH_FIRST_PARTY=1 ./images/build.sh
+
+      - name: Container smoke test
+        run: ./images/core/hack/smoke.sh omarchy-atomic-core:44
+
+      - name: Build the boot-test overlay (compiles the gated smoke unit onto the image)
+        run: |
+          docker build -t omarchy-atomic-core:44-boottest \
+            --build-arg BASE=omarchy-atomic-core:44 \
+            -f images/core/hack/boottest/Containerfile .
