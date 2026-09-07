@@ -52,7 +52,10 @@ RUN rm -rf ${OMARCHY_PREFIX}/.git ${OMARCHY_PREFIX}/images ${OMARCHY_PREFIX}/tes
 RUN if [ "$WITH_FIRST_PARTY" = "1" ]; then \
       dnf -y install sudo >/dev/null 2>&1 || true; \
       OMARCHY_INSTALL=${OMARCHY_PREFIX}/install \
+      OMARCHY_FIRST_PARTY_PREFIX=/usr \
+      HOME=/var/tmp/fp CARGO_HOME=/var/tmp/fp/cargo \
         bash ${OMARCHY_PREFIX}/install/helpers/fedora-first-party.sh core || true; \
+      rm -rf /var/tmp/fp; \
       dnf clean all; \
     fi
 

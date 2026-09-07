@@ -32,17 +32,22 @@ TOBI_TRY_COMMIT="d1bc484cc31a34db3d287550f4800e9a6e56bacd"
 STATE_DIR="$HOME/.local/state/omarchy/first-party"
 mkdir -p "$STATE_DIR"
 
+# Binary install dir. Defaults under /usr/local (classic non-bootc path); the bootc image
+# sets OMARCHY_FIRST_PARTY_PREFIX=/usr, because /usr/local is a /var-backed symlink there
+# where `install -D` fails.
+BIN_DIR="${OMARCHY_FIRST_PARTY_PREFIX:-/usr/local}/bin"
+
 # stamped <tool> <version> - true when the installed stamp already matches the pin.
 stamped() { [[ -f "$STATE_DIR/$1" && "$(cat "$STATE_DIR/$1" 2>/dev/null)" == "$2" ]]; }
 stamp() { echo "$2" >"$STATE_DIR/$1"; }
 warn() { echo "[first-party] [WARN] $*" >&2; }
 
-# install_bin <url> <dest-name> [mode] - download a single binary into /usr/local/bin.
+# install_bin <url> <dest-name> [mode] - download a single binary into $BIN_DIR.
 install_bin() {
   local url="$1" name="$2" mode="${3:-755}" tmp
   tmp="$(mktemp)"
   if curl -fL "$url" -o "$tmp"; then
-    sudo install -Dm"$mode" "$tmp" "/usr/local/bin/$name"
+    sudo install -Dm"$mode" "$tmp" "$BIN_DIR/$name"
     rm -f "$tmp"
     return 0
   fi
@@ -106,8 +111,8 @@ install_tensaku() {
     local dir
     dir="$(find "$tmp" -maxdepth 2 -name tensaku -type f -exec dirname {} \; | head -1)"
     dir="${dir:-$tmp}"
-    sudo install -Dm755 "$dir/tensaku" /usr/local/bin/tensaku
-    sudo install -Dm755 "$dir/tensaku-edit" /usr/local/bin/tensaku-edit
+    sudo install -Dm755 "$dir/tensaku" $BIN_DIR/tensaku
+    sudo install -Dm755 "$dir/tensaku-edit" $BIN_DIR/tensaku-edit
     stamp tensaku "$TENSAKU_VER"
   else
     warn "tensaku download failed"
@@ -139,7 +144,7 @@ install_tobi_try() {
     sudo install -Dm755 "$tmp/try.rb" /usr/lib/tobi-try/try.rb
     sudo install -Dm644 "$tmp/tui.rb" /usr/lib/tobi-try/lib/tui.rb
     sudo install -Dm644 "$tmp/fuzzy.rb" /usr/lib/tobi-try/lib/fuzzy.rb
-    sudo ln -sf /usr/lib/tobi-try/try.rb /usr/local/bin/try
+    sudo ln -sf /usr/lib/tobi-try/try.rb $BIN_DIR/try
     stamp tobi-try "$TOBI_TRY_VER"
   else
     warn "tobi-try download failed"
@@ -160,7 +165,7 @@ install_omacut() {
     (cd "$tmp/omacut-${OMACUT_VER}" && ./bin/build) &&
     [[ -f "$tmp/omacut-${OMACUT_VER}/build/omacut" ]]; then
     local src="$tmp/omacut-${OMACUT_VER}"
-    sudo install -Dm755 "$src/build/omacut" /usr/local/bin/omacut
+    sudo install -Dm755 "$src/build/omacut" $BIN_DIR/omacut
     install_share "$src/pkgbuild/omacut.desktop" /usr/share/applications/omacut.desktop
     install_share "$src/pkgbuild/omacut.svg" /usr/share/icons/hicolor/scalable/apps/omacut.svg
     stamp omacut "$OMACUT_VER"
@@ -183,7 +188,7 @@ install_omawrite() {
     (cd "$tmp/omawrite-${OMAWRITE_VER}" && ./bin/build) &&
     [[ -f "$tmp/omawrite-${OMAWRITE_VER}/build/omawrite" ]]; then
     local src="$tmp/omawrite-${OMAWRITE_VER}"
-    sudo install -Dm755 "$src/build/omawrite" /usr/local/bin/omawrite
+    sudo install -Dm755 "$src/build/omawrite" $BIN_DIR/omawrite
     install_share "$src/pkgbuild/omawrite.desktop" /usr/share/applications/omawrite.desktop
     install_share "$src/pkgbuild/omawrite.svg" /usr/share/icons/hicolor/scalable/apps/omawrite.svg
     stamp omawrite "$OMAWRITE_VER"
@@ -211,7 +216,7 @@ install_share_picker() {
     # checkout, so replace it with the fixed string the PKGBUILD uses.
     printf 'fn main() {\n    println!("cargo::rustc-env=GIT_VERSION=v%s-r0-release");\n}\n' "$SHARE_PICKER_VER" >"$src/build.rs"
     if (cd "$src" && cargo build --release) && [[ -f "$src/target/release/hyprland-preview-share-picker" ]]; then
-      sudo install -Dm755 "$src/target/release/hyprland-preview-share-picker" /usr/local/bin/hyprland-preview-share-picker
+      sudo install -Dm755 "$src/target/release/hyprland-preview-share-picker" $BIN_DIR/hyprland-preview-share-picker
       stamp share-picker "$SHARE_PICKER_VER"
     else
       warn "hyprland-preview-share-picker build failed"
