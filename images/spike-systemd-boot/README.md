@@ -59,6 +59,13 @@ to complete the ESP assertion.)
 - [x] Image builds + `bootc container lint` passes (systemd-boot; grub/bootupd removed)
 - [x] **`bootc install to-disk --composefs-backend --bootloader systemd` fully SUCCEEDS on the
       Asahi base** (CI step "bootc install to-disk" = success) — the core question, answered yes.
-- [ ] systemd-boot lands on the ESP, no grub — CI check switched from libguestfs (its qemu
-      appliance won't launch on the aarch64 runner) to a plain loopback mount; re-running.
+- [x] **systemd-boot lands on the ESP, no grub** — loopback mount confirms
+      `/EFI/systemd/systemd-bootaa64.efi` + the removable `/EFI/BOOT/BOOTAA64.EFI` (the path
+      U-Boot loads on Asahi), kernel+initrd under `/EFI/Linux/bootc_composefs-…/`, and no
+      `grubaa64.efi`. CI run 34158335403 fully green.
 - [ ] Hardware: U-Boot → systemd-boot → Asahi kernel boots with USB/GPU (devicetree intact)
+      — the only remaining unknown; needs a reboot on a real Mac (`bootctl status`, USB/GPU).
+
+**Spike conclusion:** systemd-boot on Asahi is viable through build + lint + `bootc install`
++ ESP layout — everything testable without hardware passes. Upstream/bazzite never tried it;
+it works. Only the physical boot (devicetree handoff) is left to confirm on-device.
