@@ -35,22 +35,15 @@ else
   echo "apply-m1n1: boot.bin already current for $cur (left in place)"
 fi
 
-# --- vendor firmware: leave in place by default; opt-in refresh when the extractor updates ---
-# asahi-fwextract re-derives vendorfw from this machine's Apple firmware. Its exact invocation
-# varies, so it is OPT-IN (OMARCHY_FWEXTRACT=1) and best-effort; the default is leave-in-place
-# (the install wrapper preserves the existing vendorfw, which changes very rarely).
-if command -v asahi-fwextract >/dev/null 2>&1; then
-  fstamp="$state/fwextract-applied"
-  fver="$(rpm -q --qf '%{VERSION}-%{RELEASE}' asahi-fwextract 2>/dev/null || echo unknown)"
-  if [ "$(cat "$fstamp" 2>/dev/null)" != "$fver" ]; then
-    if [ "${OMARCHY_FWEXTRACT:-0}" = 1 ]; then
-      echo "apply-m1n1: refreshing vendor firmware (asahi-fwextract $fver)"
-      if asahi-fwextract; then printf '%s\n' "$fver" >"$fstamp"
-      else echo "apply-m1n1: asahi-fwextract failed — vendorfw left in place" >&2; fi
-    else
-      echo "apply-m1n1: vendorfw left in place (asahi-fwextract $fver available; set OMARCHY_FWEXTRACT=1 to refresh)"
-    fi
-  fi
+# --- vendor firmware: leave in place by default; opt-in refresh via the distro's fw tool ---
+# The tool re-derives vendorfw from this machine's Apple firmware. Its name differs by distro
+# (Fedora: asahi-fwupdate; Arch: asahi-fwextract) and its invocation varies, so refresh is
+# OPT-IN (OMARCHY_FWEXTRACT=1) and best-effort. Default = leave-in-place (the install wrapper
+# preserves the existing vendorfw, which changes very rarely).
+fwtool="$(command -v asahi-fwupdate 2>/dev/null || command -v asahi-fwextract 2>/dev/null || true)"
+if [ -n "$fwtool" ] && [ "${OMARCHY_FWEXTRACT:-0}" = 1 ]; then
+  echo "apply-m1n1: refreshing vendor firmware via $(basename "$fwtool")"
+  "$fwtool" || echo "apply-m1n1: firmware refresh failed — vendorfw left in place" >&2
 fi
 
 if [ "$changed" = 1 ]; then

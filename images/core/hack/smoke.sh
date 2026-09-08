@@ -76,8 +76,14 @@ grep -q 'org.gnome.Loupe.desktop'   "$mimes" 2>/dev/null && ok "images -> Loupe"
 echo "== Asahi m1n1 / devicetree (atomic) =="
 grep -Eq 'DTBS=.*/usr/lib/modules/.*dtb' /etc/sysconfig/update-m1n1 2>/dev/null \
   && ok "update-m1n1 DTBS -> image devicetree" || no "update-m1n1 DTBS not pointed at /usr/lib/modules"
-command -v update-m1n1     >/dev/null 2>&1 && ok "update-m1n1 present (m1n1 stage-2 refresh)"   || no "update-m1n1 missing"
-command -v asahi-fwextract >/dev/null 2>&1 && ok "asahi-fwextract present (vendorfw refresh)"   || no "asahi-fwextract missing"
+command -v update-m1n1 >/dev/null 2>&1 && ok "update-m1n1 present (m1n1 stage-2 refresh)" || no "update-m1n1 missing"
+# firmware tool name is distro-dependent (Fedora: asahi-fwupdate, Arch: asahi-fwextract); absence
+# is non-fatal (vendorfw is left in place, refreshed opt-in).
+if command -v asahi-fwupdate >/dev/null 2>&1 || command -v asahi-fwextract >/dev/null 2>&1; then
+  ok "asahi firmware tool present (vendorfw refresh)"
+else
+  echo "  - asahi firmware tool absent — vendorfw left in place (ok)"
+fi
 [ -x /usr/libexec/omarchy-apply-m1n1 ] && ok "omarchy-apply-m1n1 helper present" || no "omarchy-apply-m1n1 missing"
 [ -L /etc/systemd/system/multi-user.target.wants/omarchy-apply-m1n1.service ] \
   && ok "omarchy-apply-m1n1.service enabled" || no "omarchy-apply-m1n1.service not enabled"

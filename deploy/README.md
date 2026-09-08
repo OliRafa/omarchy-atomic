@@ -53,7 +53,8 @@ stays at `/sysroot`. Recovery: from macOS, restore `m1n1/boot.bin` from `/var/tm
   must flow through `boot.bin` (a static image DTB won't do). `OMARCHY_M1N1_AUTOREBOOT=1` (in
   `/etc/default/omarchy-m1n1`) auto-reboots when it changed.
 - **Vendor firmware:** **left in place** by default (it's per-machine and rarely changes). Opt in
-  with `OMARCHY_FWEXTRACT=1` to run `asahi-fwextract` when its package version changes.
+  with `OMARCHY_FWEXTRACT=1` to run the distro's firmware tool (Fedora: `asahi-fwupdate`,
+  Arch: `asahi-fwextract`).
 
 Update flow:
 ```sh
