@@ -26,8 +26,10 @@ ENGINE=podman FEDORA=43 ./images/build.sh core
 
 ## Bootloader: systemd-boot
 
-The core image ships **systemd-boot**, not GRUB — it drops `grub2-efi-aa64` + `bootupd` and
-adds `systemd-boot-unsigned`. On Asahi the chain is `m1n1 → U-Boot(UEFI) → /EFI/BOOT/BOOTAA64.EFI
+The core image ships **systemd-boot**, not GRUB — it adds `systemd-boot-unsigned` and selects
+it at install via `--bootloader systemd`. (grub2/bootupd can't be fully removed — they're held
+by `asahi-platform-metapackage` — but stay unused; the ESP ends up systemd-boot-only.) On Asahi
+the chain is `m1n1 → U-Boot(UEFI) → /EFI/BOOT/BOOTAA64.EFI
 → kernel`: U-Boot loads whatever EFI binary sits at that removable path (here, systemd-boot),
 and the devicetree comes from m1n1 via UEFI, so the bootloader never manages it. Upstream
 fedora-asahi-atomic and bazzite both stay on GRUB — this is the one place we diverge. It needs

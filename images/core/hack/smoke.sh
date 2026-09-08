@@ -31,7 +31,9 @@ echo "== kernel + bootloader (image) =="
 n=$(find /usr/lib/modules -maxdepth 2 -name vmlinuz 2>/dev/null | wc -l)
 [ "$n" = 1 ] && ok "exactly one kernel in /usr/lib/modules" || no "expected 1 kernel in /usr/lib/modules, found $n"
 rpm -q systemd-boot-unsigned >/dev/null 2>&1 && ok "systemd-boot-unsigned installed" || no "systemd-boot-unsigned missing"
-rpm -q grub2-efi-aa64 >/dev/null 2>&1 && no "grub2-efi-aa64 still present (should be removed)" || ok "grub2 removed"
+# grub2/bootupd may remain (held by asahi-platform-metapackage) — harmless, since the
+# bootloader is selected at install time via --bootloader systemd. The authoritative "no grub"
+# check is the install-to-disk ESP assertion in core-image-e2e.yml.
 
 echo "== core desktop packages =="
 for p in hyprland quickshell uwsm sddm NetworkManager pipewire wireplumber fcitx5 qt6-qtimageformats glycin-loaders; do
