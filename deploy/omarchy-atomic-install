@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# Plain-bootc install of omarchy-atomic onto a running Fedora Asahi system (Apple Silicon).
+#
+# Uses `bootc install to-existing-root --composefs-backend --bootloader systemd` — NO rpm-ostree,
+# NO bootupd. bootc lays down the OS + systemd-boot (the OS bootloader at /EFI/BOOT/BOOTAA64.EFI);
+# this wrapper preserves the Asahi PREBOOT layer that bootc doesn't manage:
+#   <ESP>/m1n1/boot.bin  (m1n1 stage 2 + U-Boot + DTB)   and   <ESP>/vendorfw/  (per-machine fw)
+# The Apple stub / m1n1 stage 1 are never touched (Linux can't reach them without 1TR).
+#
+# Boot chain after install:
+#   Apple iBoot -> m1n1 s1 (stub) -> m1n1 s2 (boot.bin) -> U-Boot -> systemd-boot -> kernel
+#
+# The proper m1n1/DT refresh (matching the NEW kernel) is done on first boot by
+# omarchy-apply-m1n1.service, which runs update-m1n1 from the new image's /usr. This wrapper
+# only guarantees the machine boots at all after reboot (restores the known-good boot.bin).
+#
+# USAGE (as root, on a Fedora Asahi aarch64 host — NOT your daily driver; test install):
+#   sudo deploy/omarchy-atomic-install ghcr.io/olirafa/omarchy-atomic:44
+set -euo pipefail
+
+IMAGE="${1:?usage: omarchy-atomic-install <image-ref>   e.g. ghcr.io/olirafa/omarchy-atomic:44}"
+[ "$(id -u)" = 0 ]         || { echo "run as root"; exit 1; }
+[ "$(uname -m)" = aarch64 ] || { echo "aarch64 (Apple Silicon) only"; exit 1; }
+command -v podman >/dev/null || { echo "podman required (bootc install reads /var/lib/containers)"; exit 1; }
+[ -e /proc/device-tree/chosen/asahi,efi-system-partition ] || \
+  { echo "no asahi,efi-system-partition — is this a Fedora Asahi (Apple Silicon) system?"; exit 1; }
+
+# 1) Identify the OS ESP the way m1n1 does (authoritative), fall back to /boot/efi.
+esp_uuid="$(tr -d '\0' </proc/device-tree/chosen/asahi,efi-system-partition 2>/dev/null || true)"
+esp_dev="$(blkid -t "PARTUUID=$esp_uuid" -o device 2>/dev/null || true)"
+esp="$(findmnt -no TARGET "$esp_dev" 2>/dev/null || findmnt -no TARGET /boot/efi 2>/dev/null || echo /boot/efi)"
+echo "==> OS ESP: $esp  (asahi,efi-system-partition=$esp_uuid, dev=${esp_dev:-?})"
+[ -e "$esp/m1n1/boot.bin" ] || echo "    WARNING: $esp/m1n1/boot.bin not found — verify the ESP before continuing"
+
+# 2) Back up the Asahi preboot layer (bootc may reinitialize the ESP).
+bk="/var/tmp/asahi-preboot-backup"; rm -rf "$bk"; mkdir -p "$bk"
+for d in m1n1 vendorfw; do [ -e "$esp/$d" ] && cp -a "$esp/$d" "$bk/$d"; done
+echo "==> backed up m1n1 + vendorfw -> $bk"
+
+# 3) Plain bootc install (composefs-native + systemd-boot; no rpm-ostree, no bootupd).
+echo "==> pulling + bootc install to-existing-root from $IMAGE"
+podman pull "$IMAGE"
+podman run --rm --privileged --pid=host --security-opt label=type:unconfined_t \
+  -v /dev:/dev -v /var/lib/containers:/var/lib/containers -v /:/target \
+  "$IMAGE" \
+  bootc install to-existing-root --composefs-backend --bootloader systemd --acknowledge-destructive
+
+# 4) Guarantee bootability: if bootc reinitialized the ESP, restore the KNOWN-GOOD preboot.
+#    (Do NOT run update-m1n1 here — the host /usr is still the OLD OS; the correct refresh from
+#    the NEW image happens on first boot via omarchy-apply-m1n1.service.)
+for d in m1n1 vendorfw; do
+  if [ ! -e "$esp/$d" ] && [ -e "$bk/$d" ]; then
+    echo "==> ESP was reinitialized — restoring $d from backup"; cp -a "$bk/$d" "$esp/$d"
+  fi
+done
+
+echo
+echo "==> DONE.  Reboot to switch. On first boot, omarchy-apply-m1n1.service refreshes boot.bin"
+echo "    for the new kernel (a second reboot applies a changed devicetree). Old system is at /sysroot."
+echo "    Recovery: mount the ESP from macOS and restore m1n1/boot.bin from $bk if needed."

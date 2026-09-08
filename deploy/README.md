@@ -1,0 +1,69 @@
+# Deploying omarchy-atomic on Apple Silicon (plain bootc)
+
+Plain bootc — **no rpm-ostree, no bootupd**. bootc owns the OS bootloader (systemd-boot at
+`/EFI/BOOT/BOOTAA64.EFI`); the Asahi **preboot layer** is handled separately by the Asahi
+scripts, exactly as the [Open OS Interop spec](https://asahilinux.org/docs/platform/open-os-interop/)
+intends (the OS controls its chain "from m1n1 stage 2 onward").
+
+## Boot chain (what lives where)
+
+```
+Apple iBoot
+  → m1n1 stage 1     [APFS stub partition — machine-signed, 1TR-only, NEVER touched by Linux]
+  → m1n1 stage 2     [<ESP>/m1n1/boot.bin]   ── m1n1 s2 + U-Boot + DTB, written by update-m1n1
+  → U-Boot           [inside boot.bin]        ── loads the default removable EFI path (no NVRAM)
+  → systemd-boot     [<ESP>/EFI/BOOT/BOOTAA64.EFI]   ── the OS bootloader (bootc installs this)
+  → Linux kernel
+                     [<ESP>/vendorfw/]        ── per-machine Apple firmware (early initrd)
+```
+
+Swapping the OS bootloader (GRUB/Limine → systemd-boot) is just replacing `/EFI/BOOT/BOOTAA64.EFI`;
+`m1n1/boot.bin` and `vendorfw/` are independent and must be left in place (or regenerated).
+
+## Install (`deploy/omarchy-atomic-install`)
+
+On a **Fedora Asahi** aarch64 host (a *test* install — not your daily driver):
+
+```sh
+sudo deploy/omarchy-atomic-install ghcr.io/olirafa/omarchy-atomic:44
+sudo reboot
+```
+
+What it does:
+1. Identifies the OS ESP via `/proc/device-tree/chosen/asahi,efi-system-partition` (authoritative).
+2. **Backs up** `<ESP>/m1n1` + `<ESP>/vendorfw`.
+3. `bootc install to-existing-root --composefs-backend --bootloader systemd` (plain bootc).
+4. If bootc reinitialized the ESP, **restores** the known-good `m1n1`/`vendorfw` so the machine boots.
+
+The Apple stub / m1n1 stage 1 are never touched — so this cannot brick stage 1, and the old OS
+stays at `/sysroot`. Recovery: from macOS, restore `m1n1/boot.bin` from `/var/tmp/asahi-preboot-backup`.
+
+> Your Arch/ALARM daily driver is **not** a direct target — bootc + a Fedora image can't convert a
+> pacman system in place. Install Fedora Asahi Remix as a *second* OS (Apple boot picker) and run
+> this there, leaving armarchy untouched.
+
+## Refreshing m1n1 + firmware on update (`omarchy-apply-m1n1.service`)
+
+`bootc upgrade` pulls a new image but is not Asahi-aware — it won't refresh the preboot layer.
+`omarchy-apply-m1n1.service` (baked into the core image) does, on plain bootc:
+
+- **m1n1 stage 2 + devicetree:** runs `update-m1n1` **once per kernel** (rewrites `boot.bin` from
+  the running image's m1n1/U-Boot/DTB), then leaves it in place until the next kernel change. You
+  **can't bypass** this for a DT-changing kernel update — m1n1 patches the DT per-machine, so it
+  must flow through `boot.bin` (a static image DTB won't do). `OMARCHY_M1N1_AUTOREBOOT=1` (in
+  `/etc/default/omarchy-m1n1`) auto-reboots when it changed.
+- **Vendor firmware:** **left in place** by default (it's per-machine and rarely changes). Opt in
+  with `OMARCHY_FWEXTRACT=1` to run `asahi-fwextract` when its package version changes.
+
+Update flow:
+```sh
+sudo bootc upgrade && reboot     # onto the new image (plain bootc — no rpm-ostree)
+# omarchy-apply-m1n1.service refreshes boot.bin for the new kernel on that boot…
+reboot                           # …and this boot uses the refreshed devicetree
+```
+
+## Not yet confirmed on hardware
+
+Whether `bootc install`'s ESP handling **reformats** the ESP (→ preboot restored from backup) or
+**writes into it** (→ preboot survives untouched). The backup/restore makes the wrapper safe either
+way; a real run on a Mac will tell us which it is.
