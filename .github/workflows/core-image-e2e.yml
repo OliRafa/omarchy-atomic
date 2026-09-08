@@ -114,5 +114,5 @@ jobs:
       - name: Build the on-hardware boot-test overlay (compiles the gated smoke unit)
         run: |
           sudo podman build -t omarchy-atomic-core:44-boottest \
-            --build-arg BASE=omarchy-atomic-core --build-arg TAG=44 \
+            --build-arg BASE=omarchy-atomic-core:44 \
             -f images/core/hack/boottest/Containerfile .
