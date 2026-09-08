@@ -18,6 +18,16 @@ kver="$(uname -r)"
 echo "  kernel: $kver"
 echo "$kver" | grep -qiE '16k|asahi' && ok "Asahi kernel-16k is running" || no "not the Asahi kernel: $kver"
 
+echo "== bootloader: systemd-boot (not GRUB) =="
+if command -v bootctl >/dev/null 2>&1; then
+  bootctl status 2>/dev/null | grep -qi 'systemd-boot' && ok "systemd-boot is the active bootloader" || no "systemd-boot not active (GRUB?)"
+  bootctl list 2>/dev/null | grep -qiE 'type #1|type #2' && ok "a boot entry is present" || no "no boot entry"
+else
+  no "bootctl missing"
+fi
+{ [ ! -e /boot/efi/EFI/fedora/grubaa64.efi ] && [ ! -e /boot/EFI/fedora/grubaa64.efi ]; } \
+  && ok "no grub on ESP" || no "grub present on ESP"
+
 echo "== core services =="
 systemctl is-active --quiet sddm.service && ok "sddm (display manager) active" || no "sddm not active"
 systemctl is-active --quiet NetworkManager.service && ok "NetworkManager active" || no "NetworkManager not active"

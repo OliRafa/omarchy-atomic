@@ -27,6 +27,12 @@ echo "== Fedora Asahi base (Apple Silicon) =="
 rpm -q kernel-16k >/dev/null 2>&1 && ok "kernel-16k (Asahi kernel)" || no "kernel-16k missing — wrong base"
 rpm -q asahi-platform-metapackage >/dev/null 2>&1 && ok "asahi-platform-metapackage" || no "asahi platform packages missing"
 
+echo "== kernel + bootloader (image) =="
+n=$(find /usr/lib/modules -maxdepth 2 -name vmlinuz 2>/dev/null | wc -l)
+[ "$n" = 1 ] && ok "exactly one kernel in /usr/lib/modules" || no "expected 1 kernel in /usr/lib/modules, found $n"
+rpm -q systemd-boot-unsigned >/dev/null 2>&1 && ok "systemd-boot-unsigned installed" || no "systemd-boot-unsigned missing"
+rpm -q grub2-efi-aa64 >/dev/null 2>&1 && no "grub2-efi-aa64 still present (should be removed)" || ok "grub2 removed"
+
 echo "== core desktop packages =="
 for p in hyprland quickshell uwsm sddm NetworkManager pipewire wireplumber fcitx5 qt6-qtimageformats glycin-loaders; do
   rpm -q "$p" >/dev/null 2>&1 && ok "$p" || no "$p missing"

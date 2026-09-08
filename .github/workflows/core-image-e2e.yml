@@ -1,13 +1,12 @@
 name: Core image e2e
 
-# Builds the omarchy-atomic CORE image from source (validates the current Containerfile,
-# not whatever is on a registry) and runs the container smoke test. Runs on an aarch64
-# runner because the image is Apple-Silicon / Fedora Asahi (aarch64-only).
+# Builds the core + preinstalls images from source, runs the container smoke tests, and
+# validates a real `bootc install to-disk` (composefs-native + systemd-boot — the shipping
+# bootloader) by loopback-mounting the installed disk. aarch64 runner because the image is
+# Apple-Silicon / Fedora Asahi only.
 #
-# A full boot test (ultron-os style: bootc install to-disk + qemu) is intentionally NOT
-# here: the Fedora Asahi kernel-16k is Apple-Silicon-specific and does not boot in generic
-# qemu. Boot-time state is covered by images/core/hack/boottest/, run on real Apple Silicon
-# (after `bootc switch`) or an Asahi-capable VM.
+# Not covered here (needs a real Mac): the physical boot + first-boot service execution — the
+# Asahi kernel-16k won't boot in generic qemu. That's the on-hardware boottest/ harness.
 on:
   push:
     paths:
@@ -30,32 +29,88 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  container-smoke:
+  e2e:
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 60
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v4
 
-      - name: Free up runner disk (the image + base run to ~11 GB)
-        run: |
-          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache 2>/dev/null || true
-          docker image prune -af 2>/dev/null || true
-          df -h /
+      - name: Free up runner disk (image builds + bootc install-to-disk are space-hungry)
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: true
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
 
+      - name: Install podman + btrfs tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends podman btrfs-progs
+
+      # Rootful podman throughout: `bootc install` reads the image from /var/lib/containers,
+      # so the image must be built into root storage (sudo) and the scripts run under sudo.
       - name: Build core image (first-party on; bootc container lint runs in-build)
-        run: WITH_FIRST_PARTY=1 ./images/build.sh
+        run: sudo env ENGINE=podman WITH_FIRST_PARTY=1 ./images/build.sh core
 
-      - name: Container smoke test
-        run: ./images/core/hack/smoke.sh omarchy-atomic-core:44
+      - name: Container smoke test (core)
+        run: sudo env ENGINE=podman ./images/core/hack/smoke.sh omarchy-atomic-core:44
 
-      - name: Build preinstalls image (app-like first-party + brew/flatpak first-boot units)
-        run: ./images/build.sh preinstalls
-
-      - name: Preinstalls smoke test
-        run: ./images/preinstalls/hack/smoke.sh omarchy-atomic:44
-
-      - name: Build the boot-test overlay (compiles the gated smoke unit onto the image)
+      - name: bootc install to-disk (composefs + systemd-boot) + deploy assertions
         run: |
-          docker build -t omarchy-atomic-core:44-boottest \
-            --build-arg BASE=omarchy-atomic-core:44 \
+          mkdir -p "$RUNNER_TEMP/out"
+          truncate -s 20G "$RUNNER_TEMP/out/disk.raw"
+          sudo podman run --rm --privileged --pid=host \
+            --security-opt label=type:unconfined_t \
+            -v /var/lib/containers:/var/lib/containers -v /dev:/dev \
+            -v "$RUNNER_TEMP/out":/output \
+            omarchy-atomic-core:44 \
+            bootc install to-disk \
+              --composefs-backend --bootloader systemd --filesystem btrfs \
+              --generic-image --via-loopback --wipe /output/disk.raw
+
+          # Inspect the installed disk by loopback mount (no libguestfs — its qemu appliance
+          # won't launch on the arm runner). p1 = ESP (vfat), p2 = root (btrfs).
+          loop=$(sudo losetup -Pf --show "$RUNNER_TEMP/out/disk.raw"); echo "loop: $loop"
+          sudo mkdir -p /mnt/esp /mnt/root
+
+          sudo mount "${loop}p1" /mnt/esp
+          echo "--- ESP /EFI ---"; sudo find /mnt/esp/EFI -maxdepth 3 -print 2>/dev/null || true
+          sd=false; grub=false; kern=false
+          sudo test -e /mnt/esp/EFI/systemd/systemd-bootaa64.efi && sd=true
+          sudo test -e /mnt/esp/EFI/BOOT/BOOTAA64.EFI && sd=true
+          sudo test -e /mnt/esp/EFI/fedora/grubaa64.efi && grub=true
+          sudo find /mnt/esp/EFI/Linux -name vmlinuz 2>/dev/null | grep -q . && kern=true
+          sudo umount /mnt/esp
+
+          sudo mount "${loop}p2" /mnt/root
+          echo "--- deployment root ---"; sudo ls -a /mnt/root 2>/dev/null | head
+          aleph=false; deploy=false; repo=false
+          sudo test -e /mnt/root/.bootc-aleph.json && aleph=true
+          sudo test -d /mnt/root/ostree/deploy && deploy=true
+          sudo test -d /mnt/root/ostree/repo && repo=true
+          sudo umount /mnt/root; sudo losetup -d "$loop" || true
+
+          fail=0
+          $sd     && echo "OK: systemd-boot on ESP"        || { echo "FAIL: systemd-boot missing"; fail=1; }
+          $grub   && { echo "FAIL: grub present on ESP"; fail=1; } || echo "OK: no grub on ESP"
+          $kern   && echo "OK: kernel staged on ESP"       || { echo "FAIL: no kernel on ESP"; fail=1; }
+          $aleph  && echo "OK: .bootc-aleph.json written"  || { echo "FAIL: no .bootc-aleph.json (deploy incomplete)"; fail=1; }
+          $deploy && echo "OK: /ostree/deploy present"     || { echo "FAIL: no /ostree/deploy"; fail=1; }
+          $repo   && echo "OK: /ostree/repo present"       || { echo "FAIL: no /ostree/repo"; fail=1; }
+          exit $fail
+
+      - name: Build preinstalls image
+        run: sudo env ENGINE=podman ./images/build.sh preinstalls
+
+      - name: Container smoke test (preinstalls)
+        run: sudo env ENGINE=podman ./images/preinstalls/hack/smoke.sh omarchy-atomic:44
+
+      - name: Build the on-hardware boot-test overlay (compiles the gated smoke unit)
+        run: |
+          sudo podman build -t omarchy-atomic-core:44-boottest \
+            --build-arg BASE=omarchy-atomic-core --build-arg TAG=44 \
             -f images/core/hack/boottest/Containerfile .
