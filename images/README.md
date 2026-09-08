@@ -85,8 +85,8 @@ boots on real hardware, so the actual boot is the on-hardware boottest harness.
 
 - **Install-to-disk deploy test — in `core-image-e2e.yml`**: runs a real `bootc install
   to-disk --composefs-backend --bootloader systemd` and loopback-mounts the result to assert
-  systemd-boot on the ESP (no grub), a staged kernel, `.bootc-aleph.json`, and the
-  `/ostree/{deploy,repo}` deployment structure.
+  systemd-boot on the ESP (no grub), a staged kernel, and the composefs-native deployment
+  root layout (`/composefs`, `/ostree`, `/state`).
 
 - **CI — `.github/workflows/core-image-e2e.yml`** (`ubuntu-24.04-arm`): free disk → build core
   → container smoke → install-to-disk deploy assertions → build preinstalls → preinstalls smoke

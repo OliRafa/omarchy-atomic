@@ -88,19 +88,21 @@ jobs:
 
           sudo mount "${loop}p2" /mnt/root
           echo "--- deployment root ---"; sudo ls -a /mnt/root 2>/dev/null | head
-          aleph=false; deploy=false; repo=false
-          sudo test -e /mnt/root/.bootc-aleph.json && aleph=true
-          sudo test -d /mnt/root/ostree/deploy && deploy=true
-          sudo test -d /mnt/root/ostree/repo && repo=true
+          # composefs-native backend root layout: boot/ composefs/ ostree/ state/ (NOT the
+          # classic /ostree/repo + /ostree/deploy + .bootc-aleph.json-at-root).
+          cfs=false; ost=false; st=false
+          sudo test -d /mnt/root/composefs && cfs=true
+          sudo test -d /mnt/root/ostree && ost=true
+          sudo test -d /mnt/root/state && st=true
           sudo umount /mnt/root; sudo losetup -d "$loop" || true
 
           fail=0
-          $sd     && echo "OK: systemd-boot on ESP"        || { echo "FAIL: systemd-boot missing"; fail=1; }
-          $grub   && { echo "FAIL: grub present on ESP"; fail=1; } || echo "OK: no grub on ESP"
-          $kern   && echo "OK: kernel staged on ESP"       || { echo "FAIL: no kernel on ESP"; fail=1; }
-          $aleph  && echo "OK: .bootc-aleph.json written"  || { echo "FAIL: no .bootc-aleph.json (deploy incomplete)"; fail=1; }
-          $deploy && echo "OK: /ostree/deploy present"     || { echo "FAIL: no /ostree/deploy"; fail=1; }
-          $repo   && echo "OK: /ostree/repo present"       || { echo "FAIL: no /ostree/repo"; fail=1; }
+          $sd   && echo "OK: systemd-boot on ESP"               || { echo "FAIL: systemd-boot missing"; fail=1; }
+          $grub && { echo "FAIL: grub present on ESP"; fail=1; } || echo "OK: no grub on ESP"
+          $kern && echo "OK: kernel staged on ESP"              || { echo "FAIL: no kernel on ESP"; fail=1; }
+          $cfs  && echo "OK: /composefs deployment store present" || { echo "FAIL: no /composefs (composefs deploy incomplete)"; fail=1; }
+          $ost  && echo "OK: /ostree present"                   || { echo "FAIL: no /ostree"; fail=1; }
+          $st   && echo "OK: /state present"                    || { echo "FAIL: no /state"; fail=1; }
           exit $fail
 
       - name: Build preinstalls image
