@@ -37,6 +37,15 @@ RUN dnf -y install $(sed 's/#.*//' /tmp/core.packages | awk 'NF') \
  && dnf clean all \
  && rm -f /tmp/core.packages
 
+# 3b) Bootloader: systemd-boot. Install systemd-boot-unsigned; the actual bootloader is chosen
+#     at install time via `--bootloader systemd` (see images/README.md). grub2/bootupd stay
+#     installed (held by asahi-platform-metapackage) but are unused — best-effort removal only.
+#     On Asahi, m1n1 -> U-Boot loads the removable /EFI/BOOT/BOOTAA64.EFI (systemd-boot here);
+#     the devicetree comes from m1n1 via UEFI, so the bootloader never manages it.
+RUN dnf -y install systemd-boot-unsigned \
+ && { dnf -y remove grub2-efi-aa64 grub2-efi-aa64-modules bootupd 2>/dev/null || true; } \
+ && dnf clean all
+
 # 4) The Omarchy tree + system hooks. bin/* is symlinked into /usr/bin (immutable /usr,
 #    the bootc-correct location) so omarchy-* commands resolve in every context.
 COPY . ${OMARCHY_PREFIX}

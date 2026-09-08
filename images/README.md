@@ -4,7 +4,7 @@ Two-image design for the bootc PoC:
 
 | Image | Contents | Status |
 |-------|----------|--------|
-| **core** — `images/core/Containerfile` → `omarchy-atomic-core` | Fedora Asahi base-atomic + Omarchy Hyprland core (`install/omarchy-base.packages.core`) + core first-party tools + m1n1/devicetree fix + PATH/brew hooks | builds + lints clean |
+| **core** — `images/core/Containerfile` → `omarchy-atomic-core` | Fedora Asahi base-atomic + Omarchy Hyprland core (`install/omarchy-base.packages.core`) + core first-party tools + m1n1/devicetree fix + **systemd-boot** + PATH/brew hooks | builds + lints; install-to-disk validated in CI |
 | **preinstalls** — `images/preinstalls/Containerfile` → `omarchy-atomic` | `FROM core` + app-like first-party tools baked in (aether, cliamp, omacut, omawrite) + **first-boot** Flatpak (`install/flatpaks`) & Homebrew (`Brewfile`) provisioning | built |
 
 ## Base image
@@ -24,6 +24,20 @@ WITH_FIRST_PARTY=0 ./images/build.sh core # faster: validate the core package se
 ENGINE=podman FEDORA=43 ./images/build.sh core
 ```
 
+## Bootloader: systemd-boot
+
+The core image ships **systemd-boot**, not GRUB — it adds `systemd-boot-unsigned` and selects
+it at install via `--bootloader systemd`. (grub2/bootupd can't be fully removed — they're held
+by `asahi-platform-metapackage` — but stay unused; the ESP ends up systemd-boot-only.) On Asahi
+the chain is `m1n1 → U-Boot(UEFI) → /EFI/BOOT/BOOTAA64.EFI
+→ kernel`: U-Boot loads whatever EFI binary sits at that removable path (here, systemd-boot),
+and the devicetree comes from m1n1 via UEFI, so the bootloader never manages it. Upstream
+fedora-asahi-atomic and bazzite both stay on GRUB — this is the one place we diverge. It needs
+the **composefs-native backend** at install time (see Deploy). CI validates it end-to-end:
+`bootc install --composefs-backend --bootloader systemd` succeeds and lands
+`/EFI/systemd/systemd-bootaa64.efi` + the removable `/EFI/BOOT/BOOTAA64.EFI` with no grub. The
+only unconfirmed part is the physical boot (devicetree handoff) — needs a real Mac.
+
 ## Preinstalls image
 
 `FROM omarchy-atomic-core`, this adds the removable, app-like layer on top of the lean core:
@@ -42,9 +56,10 @@ ENGINE=podman FEDORA=43 ./images/build.sh core
 
 ## e2e tests
 
-Modeled on `home-servers-setup/ultron-os` (build-from-source, then assert). Split in two
-because our image is aarch64 Fedora Asahi — its `kernel-16k` only boots on real Apple
-Silicon, so the ultron-os-style qemu boot test isn't possible in generic CI.
+Modeled on `home-servers-setup/ultron-os` (build-from-source, then assert). CI validates
+everything short of a physical boot — build, container contents, and a **real `bootc install
+to-disk`** (composefs + systemd-boot) inspected by loopback mount. The Asahi `kernel-16k` only
+boots on real hardware, so the actual boot is the on-hardware boottest harness.
 
 - **Container smoke test — `images/core/hack/smoke.sh`** (runs now, anywhere aarch64):
   runs the built image as a container and asserts the userspace — Asahi base, core desktop
@@ -53,7 +68,7 @@ Silicon, so the ultron-os-style qemu boot test isn't possible in generic CI.
   preinstall "bloat" absent, the profile.d hooks, and the mimeapps repoints.
 
   ```sh
-  ./images/build.sh && ./images/core/hack/smoke.sh
+  ./images/build.sh core && ./images/core/hack/smoke.sh
   ```
 
 - **Boot smoke harness — `images/core/hack/boottest/`** (on real Apple Silicon / Asahi VM):
@@ -68,9 +83,14 @@ Silicon, so the ultron-os-style qemu boot test isn't possible in generic CI.
     -f images/core/hack/boottest/Containerfile .
   ```
 
-- **CI — `.github/workflows/core-image-e2e.yml`**: on an `ubuntu-24.04-arm` runner, builds
-  the image (first-party on, `bootc container lint` in-build), runs the container smoke test,
-  and builds the boot-test overlay.
+- **Install-to-disk deploy test — in `core-image-e2e.yml`**: runs a real `bootc install
+  to-disk --composefs-backend --bootloader systemd` and loopback-mounts the result to assert
+  systemd-boot on the ESP (no grub), a staged kernel, and the composefs-native deployment
+  root layout (`/composefs`, `/ostree`, `/state`).
+
+- **CI — `.github/workflows/core-image-e2e.yml`** (`ubuntu-24.04-arm`): free disk → build core
+  → container smoke → install-to-disk deploy assertions → build preinstalls → preinstalls smoke
+  → boot-test overlay.
 
 ## Asahi: m1n1 & devicetree on atomic
 
@@ -102,27 +122,26 @@ Set `OMARCHY_M1N1_AUTOREBOOT=1` in `/etc/default/omarchy-m1n1` to make the servi
 
 ## Known bootc follow-ups (tracked; not blockers for the core build)
 
-- **`/usr/local` vs `/usr`** — `install/helpers/fedora-first-party.sh` installs into
-  `/usr/local/bin`, which is `/var`-backed on bootc (won't update on image upgrades).
-  Retarget the core tools to `/usr`.
-- **Homebrew on first boot** — the image ships only the `/etc/profile.d` shellenv hook;
-  installing brew (into `/home/linuxbrew`) and applying the `Brewfile` belongs to a
-  first-boot service in the preinstalls / user layer.
-- **Full config + systemd integration** — this core image installs packages + tree +
-  PATH, not the whole of `install.sh` (login/session/system-file steps). Layer next.
-- **`bootc container lint` is a hard gate and passes** (12 checks). One residual
-  `var-tmpfiles` warning remains for package-owned dirs (`/var/lib/plocate`,
-  `/var/lib/power-profiles-daemon`, `/var/spool/cups-pdf`): ship a
-  `/usr/lib/tmpfiles.d` entry for them (they must not simply be deleted — bootc treats
-  `/var` as machine-state and only seeds it on first boot).
+- **Full config + systemd integration** — the images install packages + tree + PATH + first-boot
+  provisioning, not the whole of `install.sh` (login/session/system-file steps). Layer next.
+- **`var-tmpfiles` lint warning** — one residual warning for package-owned dirs
+  (`/var/lib/plocate`, `/var/lib/power-profiles-daemon`, `/var/spool/cups-pdf`): ship a
+  `/usr/lib/tmpfiles.d` entry (don't delete them — bootc only seeds `/var` on first boot).
+- **On-hardware boot** — confirm `U-Boot → systemd-boot → Asahi kernel` + the first-boot
+  services (m1n1 apply, brew/flatpak) on a real Mac via the boottest harness.
 
 ## Deploy / test
 
-On an Apple-Silicon host already on Fedora Asahi bootc:
+Fresh install onto a disk — systemd-boot requires the composefs-native backend:
 
 ```sh
-sudo bootc switch --transport registry <registry>/omarchy-atomic-core:44
+sudo bootc install to-disk --composefs-backend --bootloader systemd \
+  --filesystem btrfs --wipe /dev/DISK
 ```
 
-or turn the image into an installable disk with
-[`bootc-image-builder`](https://github.com/osbuild/bootc-image-builder).
+Or take over an existing Fedora Asahi bootc system (this keeps whatever bootloader is already
+installed — the bootloader is chosen at install time, not by `switch`):
+
+```sh
+sudo bootc switch <registry>/omarchy-atomic-core:44
+```
