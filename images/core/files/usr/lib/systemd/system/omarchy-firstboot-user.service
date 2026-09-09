@@ -1,0 +1,29 @@
+[Unit]
+Description=omarchy first-boot primary user provisioning
+Documentation=man:bootc(8)
+# Only on the very first boot of a deployment (systemd latches this from an empty
+# /etc/machine-id at boot start; the image ships one empty so this fires once).
+ConditionFirstBoot=yes
+# systemd-firstboot handles root password / locale / timezone / hostname first; then we add the
+# human user. Must finish BEFORE the greeter so SDDM has an account to offer.
+After=systemd-firstboot.service systemd-user-sessions.service
+Wants=systemd-firstboot.service
+Before=display-manager.service
+# The interactive fallback needs tty1, so take it from getty for the duration.
+After=getty@tty1.service
+Conflicts=getty@tty1.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Optional per-machine preseed (KEY=VALUE); absent ⇒ interactive prompt on tty1.
+ExecStart=/usr/libexec/omarchy-firstboot-user
+StandardInput=tty-force
+StandardOutput=tty
+StandardError=tty
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+
+[Install]
+WantedBy=multi-user.target

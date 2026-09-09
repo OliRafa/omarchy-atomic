@@ -92,6 +92,17 @@ fi
 [ -L /etc/systemd/system/multi-user.target.wants/omarchy-apply-m1n1.service ] \
   && ok "omarchy-apply-m1n1.service enabled" || no "omarchy-apply-m1n1.service not enabled"
 
+echo "== first-boot user provisioning =="
+[ -x /usr/libexec/omarchy-firstboot-user ] && ok "omarchy-firstboot-user helper present" || no "omarchy-firstboot-user missing"
+[ -L /etc/systemd/system/multi-user.target.wants/omarchy-firstboot-user.service ] \
+  && ok "omarchy-firstboot-user.service enabled" || no "omarchy-firstboot-user.service not enabled"
+# No human user (uid>=1000) may be baked into the image — the account is a first-boot job.
+if getent passwd | awk -F: '$3>=1000 && $3<65534 {f=1} END{exit !f}'; then
+  no "a human user is baked into the image (must be created on first boot, not baked)"
+else
+  ok "no human user baked in (created on first boot)"
+fi
+
 echo
 if [ "$fail" = 0 ]; then echo "CONTAINER SMOKE: PASS"; else echo "CONTAINER SMOKE: FAIL"; fi
 exit "$fail"

@@ -72,6 +72,17 @@ RUN set -eux; \
     chmod +x /usr/libexec/omarchy-apply-m1n1; \
     systemctl enable omarchy-apply-m1n1.service
 
+# 5b) First-boot user provisioning. The image ships no human user and the composefs
+#     `to-existing-root` convert does NOT import the underlying OS's user (fresh /var at
+#     state/os/default/var + image /etc), so SDDM would have no account to log in. Create the
+#     primary user once on first boot (preseed via /etc/omarchy/firstboot-user.conf, else an
+#     interactive tty1 prompt), ordered before the display manager. systemd-firstboot handles
+#     root password / locale / timezone / hostname.
+RUN set -eux; \
+    chmod +x /usr/libexec/omarchy-firstboot-user; \
+    systemctl enable omarchy-firstboot-user.service; \
+    systemctl enable systemd-firstboot.service 2>/dev/null || true
+
 # 6) Core first-party tools (tensaku, voxtype, tobi-try, hyprland-preview-share-picker).
 #    The app-like first-party tools (aether/cliamp/omacut/omawrite) are deliberately NOT
 #    here — they belong to the preinstalls image.
