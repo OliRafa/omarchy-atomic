@@ -57,6 +57,13 @@ COPY images/core/files/ /
 RUN rm -rf ${OMARCHY_PREFIX}/.git ${OMARCHY_PREFIX}/images ${OMARCHY_PREFIX}/tests ${OMARCHY_PREFIX}/test \
  && for f in ${OMARCHY_PREFIX}/bin/*; do ln -sf "$f" /usr/bin/"$(basename "$f")"; done
 
+# 4b) Bake the Omarchy userland the DE-less base doesn't provide: system files (SDDM theme,
+#     /etc/omarchy.conf, uwsm/env.d, systemd user units, fontconfig, plymouth), service enablement
+#     (sddm + NetworkManager + …) + graphical.target, and /etc/skel (the shipped ~/.config tree, so
+#     `useradd -m` seeds the desktop AND the first-login trigger). Reuses install/config/* as the
+#     source of truth; see install/helpers/fedora-image-userland.sh.
+RUN OMARCHY_PATH=${OMARCHY_PREFIX} bash ${OMARCHY_PREFIX}/install/helpers/fedora-image-userland.sh
+
 # 5) Asahi + atomic: update-m1n1 is a MANUAL step on bootc, and by default reads the STATIC
 #    devicetree in /boot rather than the image's — so a kernel devicetree change (e.g. the
 #    6.19 USB DT change) boots stale and breaks hardware. Point DTBS at the image's
