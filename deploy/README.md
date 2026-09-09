@@ -56,6 +56,42 @@ macOS 1TR) if the machine won't boot.
 > pacman system in place. Install Fedora Asahi Remix as a *second* OS (Apple boot picker) and run
 > this there, leaving armarchy untouched.
 
+## Images, signing & updates
+
+`.github/workflows/publish.yml` builds and pushes both images to GHCR on every merge to `quattro`
+(and weekly, to fold in base-image + security updates):
+
+```
+ghcr.io/olirafa/omarchy-atomic-core:44   # core
+ghcr.io/olirafa/omarchy-atomic:44        # preinstalls (FROM core)   ← the wrapper installs this
+```
+
+Also tagged `44-<shortsha>` (immutable) and `latest`. Both are **cosign-signed keyless** (Fulcio/Rekor
+via GitHub OIDC), so provenance is verifiable:
+
+```sh
+cosign verify ghcr.io/olirafa/omarchy-atomic:44 \
+  --certificate-identity-regexp 'https://github.com/OliRafa/omarchy-atomic/.*' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+**Upgrade origin.** The install records the image ref you passed as the deployment origin, so
+`bootc upgrade` pulls from the same GHCR repo — no extra config:
+
+```sh
+sudo bootc upgrade && reboot     # onto the newest omarchy-atomic:44
+```
+
+**Enforced verification (optional, not yet enabled).** Requiring a valid signature at pull time means
+a `/etc/containers/policy.json` `sigstoreSigned` entry for this repo. It's deliberately **not** baked
+in yet: a mismatched keyless policy would make `bootc upgrade` refuse to pull (worse than unverified),
+and it needs on-hardware testing first. Signing is done; enforcement is a tracked follow-up.
+
+**Auto-updates (optional).** bootc ships `bootc-fetch-apply-updates.timer`, disabled by default. We
+leave it disabled — a laptop shouldn't silently reboot into a new image; run `bootc upgrade` when you
+choose. Enable it (`systemctl enable --now bootc-fetch-apply-updates.timer`) if you want unattended
+updates.
+
 ## First-boot user + passwords (`omarchy-firstboot-user.service`)
 
 The image ships **no human user**, and `bootc install to-existing-root --composefs-backend` does
