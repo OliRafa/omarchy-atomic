@@ -20,6 +20,12 @@
 #   sudo deploy/omarchy-atomic-install ghcr.io/olirafa/omarchy-atomic:44
 set -euo pipefail
 
+# ESP copy/replace helpers — the risky part of this wrapper, e2e-tested off-hardware in
+# deploy/tests/esp-backup.test.sh (the same esp_backup/esp_restore run here).
+_here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/esp-backup.sh
+. "$_here/lib/esp-backup.sh"
+
 IMAGE="${1:?usage: omarchy-atomic-install <image-ref>   e.g. ghcr.io/olirafa/omarchy-atomic:44}"
 [ "$(id -u)" = 0 ]         || { echo "run as root"; exit 1; }
 [ "$(uname -m)" = aarch64 ] || { echo "aarch64 (Apple Silicon) only"; exit 1; }
@@ -38,8 +44,8 @@ echo "==> OS ESP: $esp  (asahi,efi-system-partition=$esp_uuid, dev=${esp_dev:-?}
 #    reformats the ESP or writes into it, so snapshot the whole thing — m1n1, vendorfw, asahi/
 #    (firmware source + VGID identity), ubootefi.var, everything. Only EFI/ (systemd-boot) is
 #    bootc's to (re)create; we never restore that over what bootc writes.
-bk="/var/tmp/asahi-esp-backup"; rm -rf "$bk"; mkdir -p "$bk"
-cp -a "$esp/." "$bk/"
+bk="/var/tmp/asahi-esp-backup"
+esp_backup "$esp" "$bk"
 echo "==> backed up entire ESP ($esp) -> $bk"
 
 # 3) Plain bootc install (composefs-native + systemd-boot; no rpm-ostree, no bootupd).
@@ -55,16 +61,7 @@ podman run --rm --privileged --pid=host --security-opt label=type:unconfined_t \
 #    If bootc wrote into the ESP without reformatting, each entry still exists and is left as-is.
 #    (Do NOT run update-m1n1 here — the host /usr is still the OLD OS; the correct refresh from
 #    the NEW image happens on first boot via omarchy-apply-m1n1.service.)
-restored=""
-for entry in "$bk"/* "$bk"/.[!.]*; do
-  [ -e "$entry" ] || continue                    # unmatched glob stays literal — skip
-  name="$(basename "$entry")"
-  [ "$name" = EFI ] && continue                  # bootc owns EFI/ now — keep its systemd-boot
-  [ -e "$esp/$name" ] && continue                # bootc left it in place — nothing to do
-  echo "==> ESP was reinitialized — restoring $name from backup"
-  cp -a "$entry" "$esp/$name"; restored="$restored $name"
-done
-[ -n "$restored" ] && echo "==> restored:$restored" || echo "==> ESP left intact by bootc (nothing to restore)"
+esp_restore "$esp" "$bk"
 
 echo
 echo "==> DONE.  Reboot to switch. On first boot, omarchy-apply-m1n1.service refreshes boot.bin"

@@ -11,6 +11,7 @@ on:
   push:
     paths:
       - 'images/**'
+      - 'deploy/**'
       - 'install/omarchy-base.packages.core'
       - 'install/helpers/fedora-first-party.sh'
       - 'install/flatpaks'
@@ -19,6 +20,7 @@ on:
   pull_request:
     paths:
       - 'images/**'
+      - 'deploy/**'
       - 'install/omarchy-base.packages.core'
       - 'install/helpers/fedora-first-party.sh'
       - '.github/workflows/core-image-e2e.yml'
@@ -29,6 +31,17 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # The install wrapper's ESP copy/replace (deploy/lib/esp-backup.sh) is pure bash — no
+  # container/hardware needed — so it gates on the default runner in seconds, independent of the
+  # heavy image build. It proves the preboot layer (m1n1/vendorfw/asahi/ubootefi.var) survives
+  # whether `bootc install` reformats the ESP or writes into it, and never clobbers systemd-boot.
+  esp-backup-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: ESP backup/restore e2e (deploy/omarchy-atomic-install)
+        run: bash deploy/tests/esp-backup.test.sh
+
   e2e:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 75
