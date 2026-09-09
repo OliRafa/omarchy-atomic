@@ -126,8 +126,11 @@ jobs:
       - name: bootc install to-filesystem — ESP preboot preservation (real bootc)
         run: |
           rm -f "$RUNNER_TEMP/out/disk.raw"   # reclaim the to-disk artifact's space first
+          # Work dir must be a REAL directory in the container image: bootc runs in the image, whose
+          # /home is a symlink to /var/home (ostree), so a $RUNNER_TEMP (/home/runner/...) bind-mount
+          # target can't be created inside the container. /var/tmp is a plain dir in the image.
           sudo env ENGINE=podman bash deploy/tests/esp-bootc-integration.sh \
-            omarchy-atomic-core:44 "$RUNNER_TEMP/esp-int"
+            omarchy-atomic-core:44 /var/tmp/esp-int
 
       - name: Build preinstalls image
         run: sudo env ENGINE=podman ./images/build.sh preinstalls
