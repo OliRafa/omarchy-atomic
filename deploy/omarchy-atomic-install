@@ -3,8 +3,10 @@
 #
 # Uses `bootc install to-existing-root --composefs-backend --bootloader systemd` — NO rpm-ostree,
 # NO bootupd. bootc lays down the OS + systemd-boot (the OS bootloader at /EFI/BOOT/BOOTAA64.EFI);
-# this wrapper preserves the Asahi PREBOOT layer that bootc doesn't manage:
-#   <ESP>/m1n1/boot.bin  (m1n1 stage 2 + U-Boot + DTB)   and   <ESP>/vendorfw/  (per-machine fw)
+# this wrapper preserves EVERYTHING on the ESP that bootc doesn't manage — bootc owns only EFI/
+# (systemd-boot); the rest is the Asahi preboot + install-identity layer:
+#   <ESP>/m1n1/boot.bin  (m1n1 stage 2 + U-Boot + DTB)      <ESP>/vendorfw/  (per-machine firmware)
+#   <ESP>/asahi/  (firmware source + stub/VGID identity)     <ESP>/ubootefi.var  (U-Boot NVRAM store)
 # The Apple stub / m1n1 stage 1 are never touched (Linux can't reach them without 1TR).
 #
 # Boot chain after install:
@@ -32,10 +34,13 @@ esp="$(findmnt -no TARGET "$esp_dev" 2>/dev/null || findmnt -no TARGET /boot/efi
 echo "==> OS ESP: $esp  (asahi,efi-system-partition=$esp_uuid, dev=${esp_dev:-?})"
 [ -e "$esp/m1n1/boot.bin" ] || echo "    WARNING: $esp/m1n1/boot.bin not found — verify the ESP before continuing"
 
-# 2) Back up the Asahi preboot layer (bootc may reinitialize the ESP).
-bk="/var/tmp/asahi-preboot-backup"; rm -rf "$bk"; mkdir -p "$bk"
-for d in m1n1 vendorfw; do [ -e "$esp/$d" ] && cp -a "$esp/$d" "$bk/$d"; done
-echo "==> backed up m1n1 + vendorfw -> $bk"
+# 2) Back up the ENTIRE ESP (bootc may reinitialize it). We can't know up front whether bootc
+#    reformats the ESP or writes into it, so snapshot the whole thing — m1n1, vendorfw, asahi/
+#    (firmware source + VGID identity), ubootefi.var, everything. Only EFI/ (systemd-boot) is
+#    bootc's to (re)create; we never restore that over what bootc writes.
+bk="/var/tmp/asahi-esp-backup"; rm -rf "$bk"; mkdir -p "$bk"
+cp -a "$esp/." "$bk/"
+echo "==> backed up entire ESP ($esp) -> $bk"
 
 # 3) Plain bootc install (composefs-native + systemd-boot; no rpm-ostree, no bootupd).
 echo "==> pulling + bootc install to-existing-root from $IMAGE"
@@ -45,16 +50,24 @@ podman run --rm --privileged --pid=host --security-opt label=type:unconfined_t \
   "$IMAGE" \
   bootc install to-existing-root --composefs-backend --bootloader systemd --acknowledge-destructive
 
-# 4) Guarantee bootability: if bootc reinitialized the ESP, restore the KNOWN-GOOD preboot.
+# 4) Guarantee bootability + preserve Asahi identity: restore every backed-up ESP entry that
+#    bootc removed — EXCEPT EFI/, which bootc just wrote systemd-boot into (never overwrite it).
+#    If bootc wrote into the ESP without reformatting, each entry still exists and is left as-is.
 #    (Do NOT run update-m1n1 here — the host /usr is still the OLD OS; the correct refresh from
 #    the NEW image happens on first boot via omarchy-apply-m1n1.service.)
-for d in m1n1 vendorfw; do
-  if [ ! -e "$esp/$d" ] && [ -e "$bk/$d" ]; then
-    echo "==> ESP was reinitialized — restoring $d from backup"; cp -a "$bk/$d" "$esp/$d"
-  fi
+restored=""
+for entry in "$bk"/* "$bk"/.[!.]*; do
+  [ -e "$entry" ] || continue                    # unmatched glob stays literal — skip
+  name="$(basename "$entry")"
+  [ "$name" = EFI ] && continue                  # bootc owns EFI/ now — keep its systemd-boot
+  [ -e "$esp/$name" ] && continue                # bootc left it in place — nothing to do
+  echo "==> ESP was reinitialized — restoring $name from backup"
+  cp -a "$entry" "$esp/$name"; restored="$restored $name"
 done
+[ -n "$restored" ] && echo "==> restored:$restored" || echo "==> ESP left intact by bootc (nothing to restore)"
 
 echo
 echo "==> DONE.  Reboot to switch. On first boot, omarchy-apply-m1n1.service refreshes boot.bin"
 echo "    for the new kernel (a second reboot applies a changed devicetree). Old system is at /sysroot."
-echo "    Recovery: mount the ESP from macOS and restore m1n1/boot.bin from $bk if needed."
+echo "    Recovery: the full ESP backup is at $bk (root fs) — restore m1n1/boot.bin from there, or"
+echo "    mount the ESP from macOS 1TR, if the machine won't boot."
