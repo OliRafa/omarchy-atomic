@@ -122,13 +122,23 @@ Set `OMARCHY_M1N1_AUTOREBOOT=1` in `/etc/default/omarchy-m1n1` to make the servi
 
 ## Known bootc follow-ups (tracked; not blockers for the core build)
 
-- **Full config + systemd integration** — the images install packages + tree + PATH + first-boot
-  provisioning, not the whole of `install.sh` (login/session/system-file steps). Layer next.
+- **Full config + systemd integration** — *done*: `install/helpers/fedora-image-userland.sh` bakes
+  `install.sh`'s system-files + service enablement + `/etc/skel` at build time (SDDM theme,
+  `/etc/omarchy.conf`, uwsm/env.d, systemd user units, graphical.target, the shipped `~/.config`).
 - **`var-tmpfiles` lint warning** — one residual warning for package-owned dirs
   (`/var/lib/plocate`, `/var/lib/power-profiles-daemon`, `/var/spool/cups-pdf`): ship a
   `/usr/lib/tmpfiles.d` entry (don't delete them — bootc only seeds `/var` on first boot).
+- **SELinux** — every shipped file lives in a standard-labeled path (`/usr/libexec`,
+  `/usr/lib/systemd/system`, `/etc/profile.d`, `/etc/skel`, `/usr/share/*`), so `bootc install`
+  relabels them correctly from the base policy; no custom file_contexts are needed. Runtime service
+  denials under enforcing SELinux can only be found on real hardware — a boottest item.
+- **omarchy-migrate** — bootc-safe as-is: migration *state* is per-user (`~/.local/state/omarchy/`),
+  migrations are read from immutable `/usr/share/omarchy/migrations`, and a Fedora-44 gate skips the
+  pacman/Arch/system migrations. Nothing writes the immutable tree.
+- **First-boot provisioning idempotence** — `omarchy-{brew,flatpak}-setup` are stamp-gated
+  (`/var/lib/omarchy/*-setup-done`) and retry-until-success, so they don't re-run once complete.
 - **On-hardware boot** — confirm `U-Boot → systemd-boot → Asahi kernel` + the first-boot
-  services (m1n1 apply, brew/flatpak) on a real Mac via the boottest harness.
+  services (m1n1 apply, user provisioning, brew/flatpak) on a real Mac via the boottest harness.
 
 ## Deploy / test
 
