@@ -103,6 +103,23 @@ else
   ok "no human user baked in (created on first boot)"
 fi
 
+echo "== baked Omarchy userland (skel + session + services) =="
+[ -f /etc/skel/.bashrc ] && ok "/etc/skel/.bashrc seeded" || no "/etc/skel/.bashrc missing"
+[ -d /etc/skel/.config/hypr ] && ok "/etc/skel/.config/hypr (desktop config → new users)" || no "/etc/skel/.config/hypr missing"
+[ -f /etc/skel/.config/omarchy/branding/screensaver.txt ] && ok "/etc/skel branding seeded" || no "/etc/skel branding missing"
+[ -f /etc/omarchy.conf ] && ok "/etc/omarchy.conf (session OMARCHY_PATH — else SDDM bounces)" || no "/etc/omarchy.conf missing"
+[ -d /usr/share/sddm/themes/omarchy ] && ok "SDDM omarchy theme installed" || no "SDDM omarchy theme missing"
+if [ -L /etc/systemd/system/display-manager.service ] || systemctl is-enabled sddm.service >/dev/null 2>&1; then
+  ok "sddm enabled (display-manager)"
+else
+  no "sddm not enabled — no greeter would start"
+fi
+if [ "$(systemctl get-default 2>/dev/null)" = graphical.target ]; then
+  ok "default target = graphical.target"
+else
+  no "default target != graphical.target ($(systemctl get-default 2>/dev/null))"
+fi
+
 echo
 if [ "$fail" = 0 ]; then echo "CONTAINER SMOKE: PASS"; else echo "CONTAINER SMOKE: FAIL"; fi
 exit "$fail"
