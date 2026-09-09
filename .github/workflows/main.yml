@@ -2,13 +2,13 @@ name: CI (Linux ARM64 only)
 
 on:
   push:
-    branches: [ main, v0.* ]
+    branches: [ main, quattro, v0.* ]
     paths:
       - ".github/workflows/**"
       - "**/*.sh"
       - "scripts/**"
   pull_request:
-    branches: [ main, v0.* ]
+    branches: [ main, quattro, v0.* ]
     paths:
       - ".github/workflows/**"
       - "**/*.sh"
