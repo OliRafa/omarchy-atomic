@@ -56,6 +56,33 @@ macOS 1TR) if the machine won't boot.
 > pacman system in place. Install Fedora Asahi Remix as a *second* OS (Apple boot picker) and run
 > this there, leaving armarchy untouched.
 
+## First-boot user + passwords (`omarchy-firstboot-user.service`)
+
+The image ships **no human user**, and `bootc install to-existing-root --composefs-backend` does
+**not** import the underlying OS's user: the deployment's `/var` is a fresh copy of the image's
+(empty) `/var` at `state/os/default/var`, and its `/etc` comes from the image — so `/etc/passwd`
+and `/var/home` from the old system don't carry over. (Verified from bootc source and reproduced in
+`deploy/tests/esp-bootc-integration.sh`.) Without provisioning, SDDM's greeter would have no account
+to log in.
+
+So the core image creates the primary user **once, on first boot**, before the display manager:
+
+- **`systemd-firstboot`** — root password, locale, timezone, keymap, hostname.
+- **`omarchy-firstboot-user.service`** — the human account (added to `wheel` ⇒ sudo). Two modes:
+  - **Interactive** (default): prompts on tty1 for username / full name / password.
+  - **Preseed**: if `/etc/omarchy/firstboot-user.conf` exists it's read non-interactively, then
+    shredded (it may hold a secret). Keys:
+    ```sh
+    OMARCHY_USER=rafael
+    OMARCHY_USER_FULLNAME="Rafael Oliveira"
+    OMARCHY_USER_GROUPS="wheel"          # space-separated; default "wheel"
+    OMARCHY_USER_PASSWORD_HASH='$6$...'  # preferred (crypt(3) hash from `openssl passwd -6`)
+    # OMARCHY_USER_PASSWORD=plaintext    # alternative to the hash
+    ```
+
+The unit is `ConditionFirstBoot=yes` and self-skips if any human account (uid ≥ 1000) already
+exists — so it's a no-op on a system that already has a user.
+
 ## Refreshing m1n1 + firmware on update (`omarchy-apply-m1n1.service`)
 
 `bootc upgrade` pulls a new image but is not Asahi-aware — it won't refresh the preboot layer.

@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+# First-boot primary-user provisioning for omarchy-atomic (bootc / immutable).
+#
+# The image ships NO human user, and `bootc install to-existing-root --composefs-backend` does NOT
+# import the underlying OS's user: the deployment's /var is a fresh copy of the image's (empty)
+# /var at state/os/default/var, and its /etc comes from the image (no merge with the old /etc). So
+# without this, SDDM's greeter (which logs in currentUser) has no account to offer. This creates
+# the primary user exactly once, on first boot.
+#
+# Two modes:
+#   PRESEED     — if /etc/omarchy/firstboot-user.conf exists (KEY=VALUE), create non-interactively.
+#                 Keys: OMARCHY_USER (required), OMARCHY_USER_FULLNAME, OMARCHY_USER_GROUPS
+#                 (space-separated, default "wheel"), and ONE of OMARCHY_USER_PASSWORD_HASH
+#                 (preferred: a crypt(3) hash) or OMARCHY_USER_PASSWORD (plaintext).
+#   INTERACTIVE — otherwise prompt on the console (tty1) for username / full name / password.
+#
+# Idempotent + first-boot-gated: exits 0 if any human account (1000<=uid<65534) already exists, so
+# it's a no-op on a system that already has a user (e.g. an ostree-backend convert that kept one).
+set -uo pipefail
+
+log(){ printf 'firstboot-user: %s\n' "$1"; }
+
+# Already have a human user? Nothing to do.
+if getent passwd | awk -F: '$3>=1000 && $3<65534 {found=1} END{exit !found}'; then
+  log "a human user already exists — skipping"
+  exit 0
+fi
+
+conf=/etc/omarchy/firstboot-user.conf
+USERNAME="" FULLNAME="" PASSWORD="" PASSWORD_HASH="" GROUPS_EXTRA="wheel"
+
+if [ -r "$conf" ]; then
+  log "preseed found at $conf"
+  # shellcheck disable=SC1090
+  . "$conf"
+  USERNAME="${OMARCHY_USER:-}"
+  FULLNAME="${OMARCHY_USER_FULLNAME:-$USERNAME}"
+  PASSWORD="${OMARCHY_USER_PASSWORD:-}"
+  PASSWORD_HASH="${OMARCHY_USER_PASSWORD_HASH:-}"
+  GROUPS_EXTRA="${OMARCHY_USER_GROUPS:-wheel}"
+else
+  # Interactive on the console. The unit binds us to /dev/tty1 (StandardInput=tty-force).
+  log "no preseed — prompting on the console"
+  echo; echo "==== omarchy first-boot setup ===="
+  while [ -z "$USERNAME" ]; do read -rp "Username: " USERNAME; done
+  read -rp "Full name [$USERNAME]: " FULLNAME; FULLNAME="${FULLNAME:-$USERNAME}"
+  while :; do
+    read -rsp "Password: " p1; echo
+    read -rsp "Confirm password: " p2; echo
+    if [ -n "$p1" ] && [ "$p1" = "$p2" ]; then PASSWORD="$p1"; break; fi
+    echo "  passwords empty or mismatched — try again"
+  done
+fi
+
+if [ -z "$USERNAME" ]; then
+  log "no username (preseed missing OMARCHY_USER) — cannot continue" >&2
+  exit 1
+fi
+
+# Create the account (home under /var/home via the /home symlink on bootc).
+useradd -m -c "$FULLNAME" -s /bin/bash "$USERNAME" || { log "useradd failed" >&2; exit 1; }
+
+# Supplementary groups (wheel ⇒ sudo on Fedora). Only add groups that exist.
+for g in $GROUPS_EXTRA; do
+  getent group "$g" >/dev/null 2>&1 && usermod -aG "$g" "$USERNAME"
+done
+
+# Password: prefer a hash; else plaintext via chpasswd; else lock until one is set.
+if [ -n "$PASSWORD_HASH" ]; then
+  usermod -p "$PASSWORD_HASH" "$USERNAME"
+elif [ -n "$PASSWORD" ]; then
+  printf '%s:%s\n' "$USERNAME" "$PASSWORD" | chpasswd
+else
+  log "no password provided — locking account until one is set" >&2
+  passwd -l "$USERNAME" >/dev/null 2>&1 || true
+fi
+
+log "created '$USERNAME' (groups: ${GROUPS_EXTRA:-none})"
+
+# The preseed may hold a plaintext password — scrub it now that the user exists.
+if [ -e "$conf" ]; then
+  shred -u "$conf" 2>/dev/null || rm -f "$conf"
+fi

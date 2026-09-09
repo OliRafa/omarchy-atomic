@@ -60,6 +60,11 @@ printf 'FW-SOURCE-TARBALL'    > "$esp/asahi/all_firmware.tar.gz"
 printf '{"vgid":"TEST-VGID"}' > "$esp/asahi/stub_info.json"
 printf 'UBOOT-VARS'           > "$esp/ubootefi.var"
 printf 'OLD-GRUB-BOOTAA64'    > "$esp/EFI/BOOT/BOOTAA64.EFI"   # the OLD bootloader
+# Seed a pre-existing OS user on the target ROOT — this is what the underlying Fedora Asahi install
+# would have left. We check afterward whether the composefs convert imports it (it should NOT, which
+# is why the image ships omarchy-firstboot-user.service).
+mkdir -p "$target/var/home/testuser"; printf 'PRE-EXISTING-HOME' > "$target/var/home/testuser/MARKER"
+mkdir -p "$target/etc"; printf 'testuser:x:1000:1000:Pre-existing User:/var/home/testuser:/bin/bash\n' >> "$target/etc/passwd"
 sync
 
 echo "== 3) esp_backup the pre-populated ESP =="
@@ -89,6 +94,20 @@ else
   echo "   >>> RESULT: bootc REFORMATTED the ESP (preboot wiped — restore is REQUIRED for boot)"
 fi
 echo "   --- ESP after install (pre-restore) ---"; find "$esp" -maxdepth 2 2>/dev/null | sort | sed 's/^/     /'
+
+echo "== 5b) observe: did the convert import the pre-existing user? (why firstboot-user exists) =="
+depl_home="$target/state/os/default/var/home/testuser"       # composefs shared /var (SHARED_VAR_PATH)
+depl_passwd_has_user=no
+for e in "$target"/state/deploy/*/etc/passwd; do
+  [ -e "$e" ] && grep -q '^testuser:' "$e" 2>/dev/null && depl_passwd_has_user=yes
+done
+if [ -e "$depl_home" ] || [ "$depl_passwd_has_user" = yes ]; then
+  echo "   >>> RESULT: convert IMPORTED the pre-existing user (home and/or passwd carried over)"
+else
+  echo "   >>> RESULT: convert DROPPED the pre-existing user — fresh /var at state/os/default/var + image /etc"
+  echo "       (old data orphaned at $target/var/home/testuser: $([ -e "$target/var/home/testuser/MARKER" ] && echo present || echo gone))"
+  echo "       => omarchy-firstboot-user.service must create the account on first boot"
+fi
 
 echo "== 6) esp_restore, then assert preboot preserved + systemd-boot intact =="
 esp_restore "$esp" "$bk"
