@@ -1,0 +1,126 @@
+name: Publish images (GHCR)
+
+# Build the core + preinstalls bootc images and push them to GHCR so `bootc install` /
+# `bootc upgrade` have something to pull, then cosign-sign them (keyless, via GitHub OIDC).
+# aarch64 runner — the images are Apple-Silicon / Fedora Asahi only.
+#
+#   ghcr.io/<owner>/omarchy-atomic-core:44   (core)
+#   ghcr.io/<owner>/omarchy-atomic:44        (preinstalls, FROM core)
+#
+# Also tagged :44-<shortsha> (immutable) and :latest. Signatures are verified on-device by the
+# /etc/containers/policy.json shipped in the core image (see images/core/files/etc/containers).
+on:
+  push:
+    branches: [quattro]
+    paths:
+      - 'images/**'
+      - 'install/**'
+      - 'bin/**'
+      - 'config/**'
+      - 'default/**'
+      - 'Brewfile'
+      - '.github/workflows/publish.yml'
+  schedule:
+    - cron: '0 6 * * 1'   # weekly rebuild to pick up base-image + security updates
+  workflow_dispatch:
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write        # cosign keyless (Fulcio/Rekor via GitHub OIDC)
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 90
+    env:
+      FEDORA: "44"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute image refs (GHCR requires a lowercase namespace)
+        id: refs
+        run: |
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          {
+            echo "core=ghcr.io/$owner/omarchy-atomic-core"
+            echo "preinstalls=ghcr.io/$owner/omarchy-atomic"
+            echo "sha=${GITHUB_SHA::12}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Free up runner disk (image builds are space-hungry)
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: true
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+
+      - name: Install podman
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends podman
+
+      # Rootless throughout: we only build + push, so no root container storage is needed and
+      # cosign/podman share the runner user's registry auth.
+      - name: Build core image
+        run: env ENGINE=podman WITH_FIRST_PARTY=1 FEDORA="$FEDORA" ./images/build.sh core
+
+      - name: Build preinstalls image (FROM the core just built)
+        run: env ENGINE=podman FEDORA="$FEDORA" ./images/build.sh preinstalls
+
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Tag, push, and record digests
+        id: push
+        run: |
+          set -euo pipefail
+          core="${{ steps.refs.outputs.core }}"
+          pre="${{ steps.refs.outputs.preinstalls }}"
+          sha="${{ steps.refs.outputs.sha }}"
+          push_one() {           # push_one <local> <remote-repo> <digestfile>
+            local local_tag="$1" repo="$2" df="$3"
+            for t in "$FEDORA" "$FEDORA-$sha" latest; do podman tag "$local_tag" "$repo:$t"; done
+            # A single push of the primary tag writes the digest; the alias tags share it.
+            podman push "$repo:$FEDORA" --digestfile "$df"
+            podman push "$repo:$FEDORA-$sha"
+            podman push "$repo:latest"
+            echo "  pushed $repo (digest $(cat "$df"))"
+          }
+          push_one "omarchy-atomic-core:$FEDORA" "$core" core.digest
+          push_one "omarchy-atomic:$FEDORA"      "$pre"  pre.digest
+          {
+            echo "core_ref=$core@$(cat core.digest)"
+            echo "pre_ref=$pre@$(cat pre.digest)"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign images (keyless)
+        env:
+          COSIGN_YES: "true"
+        run: |
+          # cosign (go-containerregistry) reads the docker config, not podman's auth.json.
+          cosign login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}"
+          cosign sign "${{ steps.push.outputs.core_ref }}"
+          cosign sign "${{ steps.push.outputs.pre_ref }}"
+
+      - name: Summary
+        run: |
+          {
+            echo "### Published + signed"
+            echo ""
+            echo "- \`${{ steps.push.outputs.core_ref }}\`"
+            echo "- \`${{ steps.push.outputs.pre_ref }}\`"
+            echo ""
+            echo "Tags: \`$FEDORA\`, \`$FEDORA-${{ steps.refs.outputs.sha }}\`, \`latest\`"
+          } >> "$GITHUB_STEP_SUMMARY"
