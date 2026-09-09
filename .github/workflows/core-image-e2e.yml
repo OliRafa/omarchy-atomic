@@ -11,6 +11,7 @@ on:
   push:
     paths:
       - 'images/**'
+      - 'deploy/**'
       - 'install/omarchy-base.packages.core'
       - 'install/helpers/fedora-first-party.sh'
       - 'install/flatpaks'
@@ -19,6 +20,7 @@ on:
   pull_request:
     paths:
       - 'images/**'
+      - 'deploy/**'
       - 'install/omarchy-base.packages.core'
       - 'install/helpers/fedora-first-party.sh'
       - '.github/workflows/core-image-e2e.yml'
@@ -29,6 +31,17 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # The install wrapper's ESP copy/replace (deploy/lib/esp-backup.sh) is pure bash — no
+  # container/hardware needed — so it gates on the default runner in seconds, independent of the
+  # heavy image build. It proves the preboot layer (m1n1/vendorfw/asahi/ubootefi.var) survives
+  # whether `bootc install` reformats the ESP or writes into it, and never clobbers systemd-boot.
+  esp-backup-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: ESP backup/restore e2e (deploy/omarchy-atomic-install)
+        run: bash deploy/tests/esp-backup.test.sh
+
   e2e:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 75
@@ -46,10 +59,10 @@ jobs:
           docker-images: true
           swap-storage: true
 
-      - name: Install podman + btrfs tools
+      - name: Install podman + disk tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends podman btrfs-progs
+          sudo apt-get install -y --no-install-recommends podman btrfs-progs dosfstools gdisk
 
       # Rootful podman throughout: `bootc install` reads the image from /var/lib/containers,
       # so the image must be built into root storage (sudo) and the scripts run under sudo.
@@ -104,6 +117,20 @@ jobs:
           $ost  && echo "OK: /ostree present"                   || { echo "FAIL: no /ostree"; fail=1; }
           $st   && echo "OK: /state present"                    || { echo "FAIL: no /state"; fail=1; }
           exit $fail
+
+      # Real-bootc proxy for the install wrapper: `bootc install to-filesystem` onto a loopback disk
+      # whose ESP is pre-populated like a real Asahi ESP. Proves esp_backup/esp_restore preserve the
+      # preboot layer around an ACTUAL install, and reveals whether bootc reformats the ESP or writes
+      # into it (the one thing the pure-bash esp-backup-test can only assume). to-existing-root can't
+      # run here — it reimages the runner, which isn't Asahi anyway.
+      - name: bootc install to-filesystem — ESP preboot preservation (real bootc)
+        run: |
+          rm -f "$RUNNER_TEMP/out/disk.raw"   # reclaim the to-disk artifact's space first
+          # Work dir must be a REAL directory in the container image: bootc runs in the image, whose
+          # /home is a symlink to /var/home (ostree), so a $RUNNER_TEMP (/home/runner/...) bind-mount
+          # target can't be created inside the container. /var/tmp is a plain dir in the image.
+          sudo env ENGINE=podman bash deploy/tests/esp-bootc-integration.sh \
+            omarchy-atomic-core:44 /var/tmp/esp-int
 
       - name: Build preinstalls image
         run: sudo env ENGINE=podman ./images/build.sh preinstalls

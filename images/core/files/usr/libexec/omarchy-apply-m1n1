@@ -1,42 +1,55 @@
 #!/usr/bin/env bash
-# Apply m1n1 + the image's devicetree to the boot partition on an atomic Asahi install.
+# Refresh the Asahi PREBOOT layer in the OS EFI System Partition after an image update:
+#   <ESP>/m1n1/boot.bin   (m1n1 stage 2 + U-Boot + devicetree)   -> via update-m1n1
+#   <ESP>/vendorfw/...     (per-machine Apple firmware)           -> via asahi-fwextract (opt-in)
 #
-# Why this exists: on a mutable Asahi Fedora install, `update-m1n1` runs automatically on
-# kernel updates. On bootc/atomic it does NOT — and worse, by default it reads the STATIC
-# devicetree in /boot rather than the one shipped in the image, so a kernel devicetree
-# change (e.g. the 6.19 USB DT change) boots with a stale DT and breaks hardware.
+# This is PLAIN bootc — no rpm-ostree, no bootupd. bootc owns the OS bootloader
+# (/EFI/BOOT/BOOTAA64.EFI, e.g. systemd-boot) but is NOT Asahi-aware, so it never refreshes the
+# preboot layer. On mutable Asahi these refresh automatically on kernel/firmware updates; on
+# bootc they don't.
 #
-# The image build points DTBS at /usr/lib/modules/$(uname -r)/dtb (the image's DT, see the
-# Containerfile), and this unit runs update-m1n1 once per kernel so the boot partition's
-# m1n1 + devicetree track the running image.
+# Why boot.bin can't be bypassed: m1n1 patches the devicetree dynamically for THIS machine, so
+# the DT must flow through boot.bin — you can't hand systemd-boot a static image DTB instead.
+# So a kernel DT change (e.g. the 6.19 USB DT) with a stale boot.bin breaks hardware. Policy:
+# refresh boot.bin only when the kernel changes (leave it in place otherwise); refresh vendorfw
+# only when its package changes (and only if opted in).
 #
-# Reboot semantics are inherent to Asahi: after `bootc upgrade` + reboot you are on the NEW
-# kernel but the boot partition still holds the OLD m1n1/DT; this applies the new one, which
-# only takes effect on the NEXT boot. Set OMARCHY_M1N1_AUTOREBOOT=1 (via
-# /etc/default/omarchy-m1n1) to reboot automatically when it changed.
-#
-# Neither the fedora-asahi-remix-atomic-desktops base nor bazzite handle this today.
+# Reboot semantics (inherent to Asahi): after `bootc upgrade` + reboot you're on the new kernel
+# but boot.bin still holds the old DT; this rewrites it, effective on the NEXT boot. Set
+# OMARCHY_M1N1_AUTOREBOOT=1 (in /etc/default/omarchy-m1n1) to auto-reboot when it changed.
 set -uo pipefail
 
-command -v update-m1n1 >/dev/null 2>&1 || exit 0     # not a Fedora Asahi machine
 [ "$(uname -m)" = aarch64 ] || exit 0
+command -v update-m1n1 >/dev/null 2>&1 || exit 0     # not an Asahi machine
 
-stamp=/var/lib/omarchy/m1n1-applied
-cur="$(uname -r)"
-mkdir -p "$(dirname "$stamp")"
-[ "$(cat "$stamp" 2>/dev/null)" = "$cur" ] && exit 0  # already applied for this kernel
+state=/var/lib/omarchy; mkdir -p "$state"
+changed=0
 
-echo "omarchy-apply-m1n1: applying m1n1 + devicetree for kernel $cur"
-if ! update-m1n1; then
-  echo "omarchy-apply-m1n1: update-m1n1 failed" >&2
-  exit 1
-fi
-printf '%s\n' "$cur" >"$stamp"
-
-if [ "${OMARCHY_M1N1_AUTOREBOOT:-0}" = 1 ]; then
-  echo "omarchy-apply-m1n1: rebooting to boot with the new devicetree"
-  systemctl reboot
+# --- m1n1 stage 2 + devicetree: refresh once per kernel, else leave in place ---
+kstamp="$state/m1n1-applied"; cur="$(uname -r)"
+if [ "$(cat "$kstamp" 2>/dev/null)" != "$cur" ]; then
+  echo "apply-m1n1: refreshing m1n1 + devicetree for kernel $cur"
+  if update-m1n1; then printf '%s\n' "$cur" >"$kstamp"; changed=1
+  else echo "apply-m1n1: update-m1n1 FAILED" >&2; exit 1; fi
 else
-  echo "omarchy-apply-m1n1: new m1n1/devicetree staged — reboot once to apply it" \
-       "(set OMARCHY_M1N1_AUTOREBOOT=1 in /etc/default/omarchy-m1n1 to automate)."
+  echo "apply-m1n1: boot.bin already current for $cur (left in place)"
+fi
+
+# --- vendor firmware: leave in place by default; opt-in refresh via the distro's fw tool ---
+# The tool re-derives vendorfw from this machine's Apple firmware. Its name differs by distro
+# (Fedora: asahi-fwupdate; Arch: asahi-fwextract) and its invocation varies, so refresh is
+# OPT-IN (OMARCHY_FWEXTRACT=1) and best-effort. Default = leave-in-place (the install wrapper
+# preserves the existing vendorfw, which changes very rarely).
+fwtool="$(command -v asahi-fwupdate 2>/dev/null || command -v asahi-fwextract 2>/dev/null || true)"
+if [ -n "$fwtool" ] && [ "${OMARCHY_FWEXTRACT:-0}" = 1 ]; then
+  echo "apply-m1n1: refreshing vendor firmware via $(basename "$fwtool")"
+  "$fwtool" || echo "apply-m1n1: firmware refresh failed — vendorfw left in place" >&2
+fi
+
+if [ "$changed" = 1 ]; then
+  if [ "${OMARCHY_M1N1_AUTOREBOOT:-0}" = 1 ]; then
+    echo "apply-m1n1: rebooting to boot with the refreshed devicetree"; systemctl reboot
+  else
+    echo "apply-m1n1: boot.bin refreshed — reboot once to apply (OMARCHY_M1N1_AUTOREBOOT=1 to automate)"
+  fi
 fi
