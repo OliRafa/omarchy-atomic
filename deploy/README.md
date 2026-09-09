@@ -77,8 +77,18 @@ sudo bootc upgrade && reboot     # onto the new image (plain bootc — no rpm-os
 reboot                           # …and this boot uses the refreshed devicetree
 ```
 
-## Not yet confirmed on hardware
+## Does bootc wipe the ESP? Yes — confirmed from source
 
-Whether `bootc install`'s ESP handling **reformats** the ESP (→ preboot restored from backup) or
-**writes into it** (→ preboot survives untouched). The backup/restore makes the wrapper safe either
-way; a real run on a Mac will tell us which it is.
+`bootc install to-existing-root` defaults `--replace=alongside`
+([`install.rs:523`](https://github.com/bootc-dev/bootc/blob/main/crates/lib/src/install.rs)), and
+that mode runs `clean_boot_directories()`, which empties `/boot` **and then empties the ESP**
+(`remove_all_in_dir_no_xdev(&efidir…)`, with a literal `// TODO: we should also support not wiping
+the ESP`). So a real install **wipes the entire ESP** — the whole preboot layer is deleted. The
+backup/restore in this wrapper is therefore **load-bearing, not defensive**: without it the machine
+has no `m1n1/boot.bin` (stage 2) after install and won't boot.
+
+This is verified two ways: `deploy/tests/esp-backup.test.sh` (pure-bash, both bootc behaviors) and
+`deploy/tests/esp-bootc-integration.sh` (a REAL `bootc install to-filesystem --replace=alongside`
+onto a loopback disk — the same `clean_boot_directories()` path — asserting the preboot layer is
+restored and systemd-boot survives). Both run in `core-image-e2e.yml`. Still hardware-only: the
+physical `U-Boot → systemd-boot → kernel` handoff and first-boot `update-m1n1`.

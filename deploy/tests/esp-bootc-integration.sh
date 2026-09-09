@@ -1,15 +1,19 @@
 #!/usr/bin/env bash
 # REAL-bootc integration test for the Asahi install wrapper's ESP copy/replace. CI/root only:
 # needs loop devices, mounts, and a built image. Complements the pure-bash esp-backup.test.sh by
-# running esp_backup/esp_restore around an ACTUAL `bootc install`, so we can observe the one thing
-# the simulation can only assume: does bootc REFORMAT the ESP, or WRITE INTO it?
+# running esp_backup/esp_restore around an ACTUAL `bootc install`.
+#
+# Confirmed from bootc source (crates/lib/src/install.rs): `to-existing-root` defaults
+# --replace=alongside (:523), and Alongside runs clean_boot_directories() which empties /boot AND
+# the ESP (:2374, "TODO: we should also support not wiping the ESP"). So a real install WIPES the
+# whole ESP — the preboot layer (m1n1/vendorfw/asahi/ubootefi.var) is gone unless we restore it.
 #
 # Why to-filesystem (not to-existing-root): to-existing-root reimages the host it runs on, and the
-# CI runner isn't Asahi (no ESP/m1n1/device-tree) — so it can't run here. `to-filesystem` is the
-# closest real-bootc proxy: it installs into a target root+ESP we mount on a throwaway loopback
-# disk, sparing the runner. We pre-populate the ESP to mimic a real Asahi ESP (m1n1/vendorfw/asahi/
-# ubootefi.var + an OLD bootloader), then prove esp_backup/esp_restore preserve the preboot layer
-# and never let the old bootloader clobber bootc's systemd-boot — whichever way bootc treats the ESP.
+# CI runner isn't Asahi (no ESP/m1n1/device-tree) — so it can't run here. `to-filesystem` with
+# --replace=alongside takes the SAME clean_boot_directories() path, so it faithfully reproduces the
+# ESP wipe on a throwaway loopback disk, sparing the runner. We pre-populate the ESP to mimic a real
+# Asahi ESP (m1n1/vendorfw/asahi/ubootefi.var + an OLD bootloader), then prove esp_backup/esp_restore
+# bring the preboot layer back and never let the old bootloader clobber bootc's systemd-boot.
 #
 # Usage (root):  sudo env ENGINE=podman bash deploy/tests/esp-bootc-integration.sh <image-ref> [workdir]
 set -euo pipefail
@@ -63,13 +67,19 @@ esp_backup "$esp" "$bk"
 echo "   backup entries:"; ls -A "$bk" | sed 's/^/     /'
 
 echo "== 4) REAL bootc install to-filesystem (composefs + systemd-boot) =="
+# --replace=alongside is what `to-existing-root` defaults to (bootc install.rs:523), and it's the
+# mode that triggers clean_boot_directories() — which empties /boot AND the ESP (install.rs:2374,
+# "TODO: we should also support not wiping the ESP"). So this faithfully reproduces the ESP wipe our
+# wrapper's `to-existing-root` performs. Without it (the None branch just requires an empty root),
+# bootc would NOT wipe the ESP and the test wouldn't exercise the reformat path.
 $ENGINE run --rm --privileged --pid=host --security-opt label=type:unconfined_t \
   -v /var/lib/containers:/var/lib/containers -v /dev:/dev \
   -v "$target:$target:rshared" \
   "$IMAGE" \
   bootc install to-filesystem \
     --composefs-backend --bootloader systemd \
-    --generic-image --skip-fetch-check --acknowledge-destructive \
+    --generic-image --skip-fetch-check \
+    --replace=alongside --acknowledge-destructive \
     "$target"
 
 echo "== 5) observe: did bootc REFORMAT the ESP, or WRITE INTO it? =="
