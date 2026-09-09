@@ -37,13 +37,17 @@ RUN dnf -y install $(sed 's/#.*//' /tmp/core.packages | awk 'NF') \
  && dnf clean all \
  && rm -f /tmp/core.packages
 
-# 3b) Bootloader: systemd-boot. Install systemd-boot-unsigned; the actual bootloader is chosen
-#     at install time via `--bootloader systemd` (see images/README.md). grub2/bootupd stay
-#     installed (held by asahi-platform-metapackage) but are unused — best-effort removal only.
-#     On Asahi, m1n1 -> U-Boot loads the removable /EFI/BOOT/BOOTAA64.EFI (systemd-boot here);
-#     the devicetree comes from m1n1 via UEFI, so the bootloader never manages it.
+# 3b) Bootloader: systemd-boot; drop the tooling we don't use.
+#     - bootc selects systemd-boot when bootupd is ABSENT (and we pass --bootloader systemd at
+#       install). bootupd manages GRUB/shim only — never systemd-boot — so it's unused here.
+#     - rpm-ostree is package-layering; the composefs backend uses composefs-rs, not rpm-ostree.
+#     Removal is best-effort: any package held by asahi-platform-metapackage stays but is inert
+#     (--bootloader systemd is authoritative). The loop logs what was removed vs kept.
 RUN dnf -y install systemd-boot-unsigned \
- && { dnf -y remove grub2-efi-aa64 grub2-efi-aa64-modules bootupd 2>/dev/null || true; } \
+ && { dnf -y remove rpm-ostree bootupd grub2-efi-aa64 grub2-efi-aa64-modules 2>/dev/null || true; } \
+ && for p in rpm-ostree bootupd grub2-efi-aa64; do \
+      rpm -q "$p" >/dev/null 2>&1 && echo "[3b] KEPT (held by a dependency): $p" || echo "[3b] removed: $p"; \
+    done \
  && dnf clean all
 
 # 4) The Omarchy tree + system hooks. bin/* is symlinked into /usr/bin (immutable /usr,

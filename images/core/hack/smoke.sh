@@ -31,9 +31,13 @@ echo "== kernel + bootloader (image) =="
 n=$(find /usr/lib/modules -maxdepth 2 -name vmlinuz 2>/dev/null | wc -l)
 [ "$n" = 1 ] && ok "exactly one kernel in /usr/lib/modules" || no "expected 1 kernel in /usr/lib/modules, found $n"
 rpm -q systemd-boot-unsigned >/dev/null 2>&1 && ok "systemd-boot-unsigned installed" || no "systemd-boot-unsigned missing"
-# grub2/bootupd may remain (held by asahi-platform-metapackage) — harmless, since the
-# bootloader is selected at install time via --bootloader systemd. The authoritative "no grub"
-# check is the install-to-disk ESP assertion in core-image-e2e.yml.
+# We drop rpm-ostree (composefs backend uses composefs-rs, not rpm-ostree) and bootupd (GRUB-only;
+# its absence is how bootc selects systemd-boot). Report status — non-fatal, since a package held
+# by asahi-platform-metapackage stays but is inert (--bootloader systemd is authoritative; the
+# "no grub on ESP" guarantee is the install-to-disk assertion in core-image-e2e.yml).
+for p in rpm-ostree bootupd grub2-efi-aa64; do
+  rpm -q "$p" >/dev/null 2>&1 && echo "  - $p present (held by a dep; inert under systemd-boot)" || ok "$p removed"
+done
 
 echo "== core desktop packages =="
 for p in hyprland quickshell uwsm sddm NetworkManager pipewire wireplumber fcitx5 qt6-qtimageformats glycin-loaders; do
