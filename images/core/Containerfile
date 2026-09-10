@@ -29,11 +29,16 @@ RUN dnf -y install dnf-plugins-core \
 
 # 2) Compositor — the manifest deliberately omits it (fedora-hyprland.sh picks at install
 #    time). Prefer stable; fall back to -git when a soname bump leaves stable unresolvable.
-RUN dnf -y install hyprland || dnf -y install hyprland-git
+#    The lionheartp/Hyprland COPR routinely flakes its mirrors ("All mirrors were tried"), so
+#    retry the install (clean metadata + linear backoff between attempts) before giving up.
+RUN retry() { n=1; while ! "$@"; do [ "$n" -ge 5 ] && return 1; echo "[dnf-retry] attempt $n failed: $*"; dnf clean all || true; sleep $((n*5)); n=$((n+1)); done; }; \
+    retry dnf -y install hyprland || retry dnf -y install hyprland-git
 
-# 3) Core package set — strip inline comments + blank lines from the manifest, then install.
+# 3) Core package set — strip inline comments + blank lines from the manifest, then install
+#    (same COPR-mirror retry as step 2 — the core set also pulls from the Hyprland/COPR mirrors).
 COPY install/omarchy-base.packages.core /tmp/core.packages
-RUN dnf -y install $(sed 's/#.*//' /tmp/core.packages | awk 'NF') \
+RUN retry() { n=1; while ! "$@"; do [ "$n" -ge 5 ] && return 1; echo "[dnf-retry] attempt $n failed: $*"; dnf clean all || true; sleep $((n*5)); n=$((n+1)); done; }; \
+    retry dnf -y install $(sed 's/#.*//' /tmp/core.packages | awk 'NF') \
  && dnf clean all \
  && rm -f /tmp/core.packages
 
