@@ -72,6 +72,13 @@ jobs:
       - name: Container smoke test (core)
         run: sudo env ENGINE=podman ./images/core/hack/smoke.sh omarchy-atomic-core:44
 
+      # First-boot user setup e2e: preseed + run omarchy-firstboot-user in the real image, assert the
+      # user is created and /etc/skel seeded the Omarchy ~/.config; best-effort finalize + unit verify
+      # + hermetic provisioning tests (repo mounted since the image strips test/). The graphical
+      # first-login stays hardware-only (hack/boottest/).
+      - name: First-boot user e2e (firstboot-user + /etc/skel + provisioning)
+        run: sudo env ENGINE=podman ./images/core/hack/first-boot.sh omarchy-atomic-core:44
+
       - name: bootc install to-disk (composefs + systemd-boot) + deploy assertions
         run: |
           mkdir -p "$RUNNER_TEMP/out"
