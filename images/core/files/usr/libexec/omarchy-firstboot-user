@@ -20,13 +20,26 @@ set -uo pipefail
 
 log(){ printf 'firstboot-user: %s\n' "$1"; }
 
+# Both paths are overridable so the logic is testable without a container
+# (test/shell.d/firstboot-user-test.sh); the defaults are what the unit uses.
+conf="${OMARCHY_FIRSTBOOT_CONF:-/etc/omarchy/firstboot-user.conf}"
+marker="${OMARCHY_FIRSTBOOT_MARKER:-/var/lib/omarchy/firstboot-user.done}"
+
+# The unit is gated on this marker (ConditionPathExists=!...), NOT on systemd's ConditionFirstBoot —
+# see omarchy-firstboot-user.service for why that gate silently skipped. Write it only once a human
+# user actually exists, so an aborted prompt or a failed useradd retries on the next boot instead of
+# leaving the machine with a greeter that has no account to offer.
+mark_done() {
+  install -d -m 0755 "$(dirname "$marker")" 2>/dev/null || true
+  : >"$marker" 2>/dev/null || log "could not write $marker — will re-run next boot"
+}
+
 # Already have a human user? Nothing to do.
 if getent passwd | awk -F: '$3>=1000 && $3<65534 {found=1} END{exit !found}'; then
   log "a human user already exists — skipping"
+  mark_done
   exit 0
 fi
-
-conf=/etc/omarchy/firstboot-user.conf
 USERNAME="" FULLNAME="" PASSWORD="" PASSWORD_HASH="" GROUPS_EXTRA="wheel"
 
 if [ -r "$conf" ]; then
@@ -76,6 +89,7 @@ else
 fi
 
 log "created '$USERNAME' (groups: ${GROUPS_EXTRA:-none})"
+mark_done
 
 # The preseed may hold a plaintext password — scrub it now that the user exists.
 if [ -e "$conf" ]; then

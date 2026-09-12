@@ -1,9 +1,18 @@
 [Unit]
 Description=omarchy first-boot primary user provisioning
 Documentation=man:bootc(8)
-# Only on the very first boot of a deployment (systemd latches this from an empty
-# /etc/machine-id at boot start; the image ships one empty so this fires once).
-ConditionFirstBoot=yes
+# Gate on OUR marker, not systemd's ConditionFirstBoot.
+#
+# ConditionFirstBoot=yes was the original gate and it silently skipped on real hardware: systemd
+# latches "first boot" from an empty /etc/machine-id at boot start, nothing in the image build
+# guarantees one is shipped empty, and a composefs deployment takes /etc from the image with
+# whatever machine-id it carries. The condition came out false, the unit never ran, getty kept
+# tty1, and SDDM came up with no account to offer — a dead-end greeter with no way in.
+#
+# bootc gives each deployment a fresh /var, so a marker there still means "this deployment has not
+# been provisioned yet", and the helper writes it only once a human user actually exists — an
+# aborted prompt or a failed useradd therefore retries on the next boot rather than latching off.
+ConditionPathExists=!/var/lib/omarchy/firstboot-user.done
 # systemd-firstboot handles root password / locale / timezone / hostname first; then we add the
 # human user. Must finish BEFORE the greeter so SDDM has an account to offer.
 After=systemd-firstboot.service systemd-user-sessions.service

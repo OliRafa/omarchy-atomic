@@ -7,9 +7,14 @@
 # shipped units with systemd-analyze, and runs the hermetic provisioning unit tests (mounted repo,
 # since the image strips test/).
 #
-# NOT covered here — needs a real booted session (that's hack/boottest/ on a Mac): the
-# ConditionFirstBoot sequencing, the tty1 interactive prompt, the SDDM handoff, and the Hyprland
-# first-login autostart → omarchy-provision-first-run trigger + install/user/all.sh network steps.
+# The unit's GATING is covered here (section A0/A): it used to be ConditionFirstBoot=yes, which
+# systemd latches from an empty /etc/machine-id — nothing ships one empty, so on real hardware the
+# unit silently skipped and SDDM greeted with no account. We now populate /etc/machine-id before
+# provisioning, so this test runs in exactly the state that used to break it.
+#
+# NOT covered here — needs a real booted session (that's hack/boottest/ on a Mac): the tty1
+# interactive prompt, the SDDM handoff, and the Hyprland first-login autostart →
+# omarchy-provision-first-run trigger + install/user/all.sh network steps.
 #
 #   ./images/core/hack/first-boot.sh [IMAGE]
 #   ENGINE=podman ./images/core/hack/first-boot.sh omarchy-atomic-core:44
@@ -28,7 +33,23 @@ note(){ printf '  \033[2m·\033[0m %s\n' "$1"; }
 
 U=tester
 
+echo "== A0) the unit gates on a marker, not ConditionFirstBoot =="
+unit=/usr/lib/systemd/system/omarchy-firstboot-user.service
+if grep -q '^ConditionFirstBoot' "$unit"; then
+  no "unit still gates on ConditionFirstBoot — it skips whenever /etc/machine-id is already set"
+else
+  ok "unit does not gate on ConditionFirstBoot"
+fi
+unit_marker="$(sed -n 's/^ConditionPathExists=!//p' "$unit")"
+[ -n "$unit_marker" ] && ok "unit gates on marker: $unit_marker" || no "unit has no marker condition"
+grep -q '^Before=display-manager.service' "$unit" && ok "ordered before the display manager" || no "not ordered before the display manager"
+
 echo "== A) omarchy-firstboot-user (preseed) creates the primary user =="
+# Reproduce the field condition first: a POPULATED /etc/machine-id. systemd reports
+# ConditionFirstBoot=no in this state, which is precisely what made the unit skip on hardware.
+# Provisioning must not depend on it.
+systemd-machine-id-setup >/dev/null 2>&1 || head -c16 /dev/urandom | od -An -tx1 | tr -d ' \n' >/etc/machine-id
+[ -s /etc/machine-id ] && ok "/etc/machine-id populated (simulating a non-first boot)" || no "could not populate /etc/machine-id"
 install -d /etc/omarchy
 cat >/etc/omarchy/firstboot-user.conf <<EOF
 OMARCHY_USER=$U
@@ -49,7 +70,12 @@ echo "== B) /etc/skel seeded the Omarchy desktop into the new home =="
 [ -f "$home/.config/omarchy/branding/screensaver.txt" ]       && ok "~/.config branding seeded"                 || no "branding missing"
 [ -f /etc/omarchy.conf ]                                      && ok "/etc/omarchy.conf (session env)"           || no "/etc/omarchy.conf missing"
 
-echo "== C) preseed shredded + idempotent re-run =="
+echo "== C) done marker, preseed shredded, idempotent re-run =="
+# Without the marker the unit's condition never turns false: it would re-run every boot and take
+# tty1 from getty each time (Conflicts=getty@tty1.service).
+if [ -n "${unit_marker:-}" ]; then
+  [ -f "$unit_marker" ] && ok "done marker written at $unit_marker" || no "done marker $unit_marker not written — unit would re-run every boot"
+fi
 [ ! -e /etc/omarchy/firstboot-user.conf ] && ok "preseed conf shredded after use" || no "preseed conf left behind (holds a secret)"
 /usr/libexec/omarchy-firstboot-user 2>&1 | grep -qi 'already exists' && ok "re-run is a no-op (a user already exists)" || no "re-run did not self-skip"
 
