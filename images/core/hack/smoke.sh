@@ -45,12 +45,17 @@ done
 # ConditionKernelCommandLine=ostree, nothing reads composefs=, and the kernel mounts root= directly
 # — booting the image's kernel against whatever /usr is on the disk. It installs cleanly and fails
 # only on real hardware, so assert it here. Containerfile step 3c rebuilds the initramfs.
+# No `| grep -q` here: under `set -o pipefail` grep -q's early exit SIGPIPEs lsinitrd and the
+# pipeline reports failure even on a match — the same trap as the rpm -qa note above. Capture
+# the listing and match it in the shell instead.
 kver="$(basename "$(dirname "$(find /usr/lib/modules -maxdepth 2 -name vmlinuz 2>/dev/null | head -1)")")"
-if lsinitrd "/usr/lib/modules/$kver/initramfs.img" 2>/dev/null | grep -q 'bootc-root-setup\.service'; then
-  ok "initramfs carries bootc-root-setup.service (composefs root pivot)"
-else
-  no "initramfs has no bootc composefs root setup — a composefs install will boot the host's /usr"
-fi
+initramfs_listing="$(lsinitrd "/usr/lib/modules/$kver/initramfs.img" 2>/dev/null || true)"
+case $initramfs_listing in
+  *bootc-root-setup.service*)
+    ok "initramfs carries bootc-root-setup.service (composefs root pivot)" ;;
+  *)
+    no "initramfs has no bootc composefs root setup — a composefs install will boot the host's /usr" ;;
+esac
 
 echo "== core desktop packages =="
 for p in hyprland quickshell uwsm sddm NetworkManager pipewire wireplumber fcitx5 qt6-qtimageformats glycin-loaders; do
