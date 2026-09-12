@@ -16,8 +16,17 @@
 # esp_backup ESP BK  — mirror the entire ESP (dotfiles included) into a fresh BK dir.
 esp_backup() {
   local esp="$1" bk="$2"
+  [[ -d $esp ]] || { echo "esp_backup: $esp is not a directory" >&2; return 1; }
   rm -rf "$bk"; mkdir -p "$bk"
   cp -a "$esp/." "$bk/"
+  # An empty backup means there is nothing to put back after bootc wipes the ESP — the difference
+  # between a machine that reboots and one with no m1n1 stage 2 at all. Refuse, rather than report
+  # "backed up entire ESP" and let the caller walk into a destructive install on that false note.
+  # Most likely causes: $esp is not where the ESP is mounted, or it is not mounted at all.
+  if [[ -z $(ls -A "$bk" 2>/dev/null) ]]; then
+    echo "esp_backup: $esp is empty — nothing to restore after bootc wipes it" >&2
+    return 1
+  fi
 }
 
 # esp_restore ESP BK  — restore each top-level BK entry that no longer exists on ESP, except EFI/.

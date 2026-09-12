@@ -58,7 +58,19 @@ esp_uuid="$(tr -d '\0' </proc/device-tree/chosen/asahi,efi-system-partition 2>/d
 esp_dev="$(blkid -t "PARTUUID=$esp_uuid" -o device 2>/dev/null || true)"
 esp="$(findmnt -no TARGET "$esp_dev" 2>/dev/null || findmnt -no TARGET /boot/efi 2>/dev/null || echo /boot/efi)"
 echo "==> OS ESP: $esp  (asahi,efi-system-partition=$esp_uuid, dev=${esp_dev:-?})"
-[ -e "$esp/m1n1/boot.bin" ] || echo "    WARNING: $esp/m1n1/boot.bin not found — verify the ESP before continuing"
+# Not a warning: bootc's --replace=alongside wipes the WHOLE ESP, and m1n1 stage 2 is what U-Boot
+# loads. Backing up an ESP that doesn't hold it leaves nothing to restore and the machine does not
+# come back. If this fires, $esp is probably not where the OS ESP is mounted.
+if [[ ! -e $esp/m1n1/boot.bin ]]; then
+  echo "$esp/m1n1/boot.bin not found — refusing to continue." >&2
+  echo "  bootc wipes the entire ESP; without m1n1/boot.bin in the backup there is no stage 2 to" >&2
+  echo "  restore afterwards and the machine will not boot. Check what is really mounted there:" >&2
+  echo "    findmnt $esp; ls -R $esp | head" >&2
+  echo "  Set OMARCHY_ESP_FORCE=1 only if you have confirmed m1n1 lives elsewhere." >&2
+  if [[ ${OMARCHY_ESP_FORCE:-0} != "1" ]]; then
+    exit 1
+  fi
+fi
 
 # 2) Back up the ENTIRE ESP (bootc may reinitialize it). We can't know up front whether bootc
 #    reformats the ESP or writes into it, so snapshot the whole thing — m1n1, vendorfw, asahi/

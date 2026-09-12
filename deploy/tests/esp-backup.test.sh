@@ -90,6 +90,22 @@ esp_restore "$esp" "$bk" >/dev/null   # second run over the settled ESP
 assert_preboot_intact "$esp"
 assert_systemd_boot_won "$esp"
 
+echo "== scenario 4: an EMPTY source ESP must ABORT the backup =="
+# Real failure this guards: the wrapper resolved $esp to a path that wasn't where the ESP was
+# mounted, cp -a copied nothing, and it still announced "backed up entire ESP" — one step before a
+# bootc install that wipes the ESP for real. An empty backup restores nothing, so refuse instead.
+empty="$tmp/empty"; rm -rf "$empty" "$bk.empty"; mkdir -p "$empty"
+if esp_backup "$empty" "$bk.empty" 2>/dev/null; then
+  no "esp_backup accepted an empty ESP (would leave nothing to restore)"
+else
+  ok "esp_backup refuses an empty ESP"
+fi
+if esp_backup "$empty/does-not-exist" "$bk.empty" 2>/dev/null; then
+  no "esp_backup accepted a missing ESP directory"
+else
+  ok "esp_backup refuses a missing ESP directory"
+fi
+
 echo
 if [ "$fail" = 0 ]; then echo "ESP BACKUP/RESTORE: PASS ($pass checks)"; else echo "ESP BACKUP/RESTORE: FAIL ($fail failed, $pass passed)"; fi
 exit "$fail"
