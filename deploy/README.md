@@ -55,6 +55,11 @@ macOS 1TR) if the machine won't boot.
 > Your Arch/ALARM daily driver is **not** a direct target — bootc + a Fedora image can't convert a
 > pacman system in place. Install Fedora Asahi Remix as a *second* OS (Apple boot picker) and run
 > this there, leaving armarchy untouched.
+>
+> The installer enforces this: it reads `ID` from `/etc/os-release` and refuses on a non-Fedora
+> host. Run anyway and the bootloader points at the image's kernel while `/` stays the pacman
+> root — the machine boots a Fedora kernel against Arch's `/usr/lib/modules`, no module loads,
+> `/boot/efi` (`iocharset=iso8859-1`) fails, and you land in emergency mode.
 
 ## Images, signing & updates
 

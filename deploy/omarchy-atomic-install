@@ -33,6 +33,26 @@ command -v podman >/dev/null || { echo "podman required (bootc install reads /va
 [ -e /proc/device-tree/chosen/asahi,efi-system-partition ] || \
   { echo "no asahi,efi-system-partition — is this a Fedora Asahi (Apple Silicon) system?"; exit 1; }
 
+# The host must be Fedora: README and deploy/README both list Arch/Asahi Alarm as unsupported,
+# and nothing here is tested against a pacman root. `bootc install to-existing-root` will happily
+# lay the image down on one anyway and report success, so refuse up front.
+#
+# What an Arch host costs you when the boot then goes wrong is visibility: if the initramfs does
+# not pivot into the deployment, / stays the host's own root, and you boot the IMAGE's kernel
+# against the HOST's /usr/lib/modules. On Arch that means no module loads at all, the ESP's
+# genfstab-written `iocharset=iso8859-1` can't be resolved, and local-fs.target drops you into
+# emergency mode. NOTE: the pivot failing is a separate bug from the host check — a Fedora host
+# hits it too, it just fails quietly (old Fedora userland, new kernel) instead of loudly.
+host_id="$(sed -n 's/^ID=//p' /etc/os-release 2>/dev/null | tr -d '"' | head -1 || true)"
+if [[ $host_id != "fedora" ]]; then
+  echo "host OS is '${host_id:-unknown}', not Fedora Asahi Remix — refusing to install." >&2
+  echo "  This path is only supported and tested on Fedora Asahi Remix. bootc will install onto" >&2
+  echo "  a pacman root and report success, then boot this image's kernel against the host's own" >&2
+  echo "  modules if the initramfs does not pivot — leaving you in emergency mode." >&2
+  echo "  Install Fedora Asahi Remix as a second OS (Apple boot picker) and run this there." >&2
+  exit 1
+fi
+
 # 1) Identify the OS ESP the way m1n1 does (authoritative), fall back to /boot/efi.
 esp_uuid="$(tr -d '\0' </proc/device-tree/chosen/asahi,efi-system-partition 2>/dev/null || true)"
 esp_dev="$(blkid -t "PARTUUID=$esp_uuid" -o device 2>/dev/null || true)"
