@@ -55,6 +55,49 @@ RUN dnf -y install systemd-boot-unsigned \
     done \
  && dnf clean all
 
+# 3c) composefs boot: rebuild the initramfs with bootc's dracut module.
+#     The base image's initramfs is built for the OSTREE backend. It ships ostree-prepare-root.service,
+#     gated on ConditionKernelCommandLine=ostree, and nothing that reads `composefs=`. Install with
+#     --composefs-backend against that initramfs and the boot entry carries composefs=<digest>, no
+#     initramfs component consumes it, the condition check fails, and the kernel just mounts root=
+#     directly — you boot the IMAGE's kernel against whatever /usr is already on the disk. Observed on
+#     real hardware: install succeeded, machine booted the Fedora kernel against the host's modules,
+#     nothing could load, local-fs.target failed, emergency mode.
+#
+#     bootc ships /usr/lib/dracut/modules.d/51bootc (module name `bootc`) which installs
+#     /usr/lib/bootc/initramfs-setup + bootc-root-setup.service and forces erofs/overlay in. Rebuild
+#     /usr/lib/modules/<kver>/initramfs.img with it: that file is exactly what the composefs install
+#     copies to <ESP>/EFI/Linux/bootc_composefs-<digest>/initrd.
+#
+#     Derive the module name from the directory rather than hardcoding the 51 prefix, and FAIL the
+#     build if the module is absent or the rebuilt initramfs doesn't carry the unit — a silently
+#     ostree-only initramfs is the bug this step exists to prevent.
+#     DRACUT_NO_XATTR / DRACUT_NO_MKNOD: dracut.sh sets both itself when systemd-detect-virt says
+#     it is in a container, because the build filesystem supports neither xattrs nor mknod. That
+#     detection does not fire in this build, so dracut-install logs "Failed to copy xattr ...:
+#     Operation not supported" once per installed file — thousands of lines. It is only noise (the
+#     copy continues; xattrs aren't carried by the cpio and SELinux relabels at boot), but it buries
+#     real errors and reads like a hang, so set them explicitly.
+#
+#     /var/roothome: on an ostree/bootc layout /root is a symlink to var/roothome, and /var is empty
+#     in the image (tmpfiles creates it on first boot), so dracut-install follows a dangling symlink
+#     and dies with "ERROR: installing '/root'". Create it only for the dracut run and remove it
+#     again, so /var stays empty for `bootc container lint` in step 7.
+RUN set -eux; \
+    export DRACUT_NO_XATTR=1 DRACUT_NO_MKNOD=1; \
+    kver="$(basename "$(dirname "$(find /usr/lib/modules -maxdepth 2 -name vmlinuz | head -1)")")"; \
+    moddir="$(ls -d /usr/lib/dracut/modules.d/*bootc 2>/dev/null | head -1)"; \
+    [ -n "$moddir" ] || { echo "[3c] no bootc dracut module — composefs installs cannot pivot"; exit 1; }; \
+    modname="$(basename "$moddir" | sed 's/^[0-9]*//')"; \
+    echo "[3c] rebuilding initramfs for $kver with dracut module '$modname' ($moddir)"; \
+    if [ -e /var/roothome ]; then roothome_made=0; else mkdir -p /var/roothome; roothome_made=1; fi; \
+    dracut --force --no-hostonly --reproducible --kver "$kver" \
+      --add "$modname" "/usr/lib/modules/$kver/initramfs.img"; \
+    if [ "$roothome_made" = 1 ]; then rmdir /var/roothome; fi; \
+    lsinitrd "/usr/lib/modules/$kver/initramfs.img" | grep -q 'bootc-root-setup\.service' \
+      || { echo "[3c] rebuilt initramfs lacks bootc-root-setup.service"; exit 1; }; \
+    echo "[3c] initramfs carries bootc composefs root setup"
+
 # 4) The Omarchy tree + system hooks. bin/* is symlinked into /usr/bin (immutable /usr,
 #    the bootc-correct location) so omarchy-* commands resolve in every context.
 COPY . ${OMARCHY_PREFIX}

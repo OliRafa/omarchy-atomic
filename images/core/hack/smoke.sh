@@ -39,6 +39,19 @@ for p in rpm-ostree bootupd grub2-efi-aa64; do
   rpm -q "$p" >/dev/null 2>&1 && echo "  - $p present (held by a dep; inert under systemd-boot)" || ok "$p removed"
 done
 
+# The initramfs must carry bootc's dracut module. With --composefs-backend the boot entry's cmdline
+# is composefs=<digest>, and /usr/lib/bootc/initramfs-setup (from 51bootc) is what consumes it. The
+# base image builds an ostree-only initramfs: ostree-prepare-root.service skips on
+# ConditionKernelCommandLine=ostree, nothing reads composefs=, and the kernel mounts root= directly
+# — booting the image's kernel against whatever /usr is on the disk. It installs cleanly and fails
+# only on real hardware, so assert it here. Containerfile step 3c rebuilds the initramfs.
+kver="$(basename "$(dirname "$(find /usr/lib/modules -maxdepth 2 -name vmlinuz 2>/dev/null | head -1)")")"
+if lsinitrd "/usr/lib/modules/$kver/initramfs.img" 2>/dev/null | grep -q 'bootc-root-setup\.service'; then
+  ok "initramfs carries bootc-root-setup.service (composefs root pivot)"
+else
+  no "initramfs has no bootc composefs root setup — a composefs install will boot the host's /usr"
+fi
+
 echo "== core desktop packages =="
 for p in hyprland quickshell uwsm sddm NetworkManager pipewire wireplumber fcitx5 qt6-qtimageformats glycin-loaders; do
   rpm -q "$p" >/dev/null 2>&1 && ok "$p" || no "$p missing"

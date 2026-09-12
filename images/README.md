@@ -35,8 +35,18 @@ and the devicetree comes from m1n1 via UEFI, so the bootloader never manages it.
 fedora-asahi-atomic and bazzite both stay on GRUB — this is the one place we diverge. It needs
 the **composefs-native backend** at install time (see Deploy). CI validates it end-to-end:
 `bootc install --composefs-backend --bootloader systemd` succeeds and lands
-`/EFI/systemd/systemd-bootaa64.efi` + the removable `/EFI/BOOT/BOOTAA64.EFI` with no grub. The
-only unconfirmed part is the physical boot (devicetree handoff) — needs a real Mac.
+`/EFI/systemd/systemd-bootaa64.efi` + the removable `/EFI/BOOT/BOOTAA64.EFI` with no grub.
+
+**The initramfs has to be rebuilt for this to boot** (Containerfile step 3c). The base image builds
+an ostree-backend initramfs: it ships `ostree-prepare-root.service` gated on
+`ConditionKernelCommandLine=ostree` and nothing that reads `composefs=`. A composefs install then
+writes `composefs=<digest>` onto a cmdline no initramfs component consumes, the condition check
+skips, and the kernel mounts `root=` directly — you boot the image's kernel against whatever `/usr`
+is already on the disk. bootc ships the module (`/usr/lib/dracut/modules.d/51bootc`, providing
+`/usr/lib/bootc/initramfs-setup` + `bootc-root-setup.service`); step 3c regenerates
+`/usr/lib/modules/<kver>/initramfs.img` with `--add bootc` and fails the build if the unit is
+missing, and `hack/smoke.sh` asserts it. This bit only fails on real hardware — the install itself
+succeeds either way, which is why CI alone never caught it.
 
 ## Preinstalls image
 
