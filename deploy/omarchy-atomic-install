@@ -69,12 +69,37 @@ esp_backup "$esp" "$bk"
 echo "==> backed up entire ESP ($esp) -> $bk"
 
 # 3) Plain bootc install (composefs-native + systemd-boot; no rpm-ostree, no bootupd).
-echo "==> pulling + bootc install to-existing-root from $IMAGE"
-podman pull "$IMAGE"
+#    A locally built image (./images/build.sh leaves localhost/omarchy-atomic:<fedora>) has nothing
+#    to pull and no registry to fetch-check against, so skip both when the ref already resolves.
+#    It must be ROOT's storage: this runs under sudo and bind-mounts /var/lib/containers, while a
+#    rootless build lands in ~/.local/share/containers. Move one over with
+#    `podman image scp localhost/omarchy-atomic:44 root@localhost::` before running this.
+#    NOTE: installing from a localhost ref records it as the deployment origin, so a later
+#    `bootc upgrade` has nowhere to pull from. Add --target-imgref <registry ref> below if you
+#    want the machine to track GHCR after a local test install.
+fetch_check=()
+if podman image exists "$IMAGE"; then
+  echo "==> using local image $IMAGE (no pull, no fetch check)"
+  fetch_check=(--skip-fetch-check)
+elif [[ $IMAGE == localhost/* ]]; then
+  # Fail here rather than let `podman run` fall back to pulling it: a localhost ref sends podman
+  # to a registry literally named "localhost", which ends in a confusing connection-refused loop.
+  echo "$IMAGE is not in root's container storage — refusing to install." >&2
+  echo "  A rootless build lands in ~/.local/share/containers; this runs under sudo and reads" >&2
+  echo "  /var/lib/containers. Move the image across, then re-run:" >&2
+  echo "    podman image scp $IMAGE root@localhost::" >&2
+  exit 1
+else
+  echo "==> pulling $IMAGE"
+  podman pull "$IMAGE"
+fi
+
+echo "==> bootc install to-existing-root from $IMAGE"
 podman run --rm --privileged --pid=host --security-opt label=type:unconfined_t \
   -v /dev:/dev -v /var/lib/containers:/var/lib/containers -v /:/target \
   "$IMAGE" \
-  bootc install to-existing-root --composefs-backend --bootloader systemd --acknowledge-destructive
+  bootc install to-existing-root --composefs-backend --bootloader systemd \
+    --acknowledge-destructive "${fetch_check[@]}"
 
 # 4) Guarantee bootability + preserve Asahi identity: restore every backed-up ESP entry that
 #    bootc removed — EXCEPT EFI/, which bootc just wrote systemd-boot into (never overwrite it).

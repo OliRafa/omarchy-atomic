@@ -48,6 +48,28 @@ What it does:
    systemd-boot into. If bootc wrote in place without reformatting, each entry survives and is left
    as-is. Either way the machine boots and the Asahi identity/firmware source is preserved.
 
+### Installing a locally built image
+
+`./images/build.sh` tags `localhost/omarchy-atomic:44`. The wrapper skips the pull and the registry
+fetch-check when the ref already resolves, so pass the local tag:
+
+```sh
+sudo deploy/omarchy-atomic-install localhost/omarchy-atomic:44
+```
+
+The image has to be in **root's** container storage — the wrapper runs under sudo and bind-mounts
+`/var/lib/containers`, while a rootless build lands in `~/.local/share/containers`. Check with
+`sudo podman images`, and move one across if it isn't there:
+
+```sh
+podman image scp localhost/omarchy-atomic:44 root@localhost::
+# or: podman save localhost/omarchy-atomic:44 -o /var/tmp/oa.tar && sudo podman load -i /var/tmp/oa.tar
+```
+
+A local install records `localhost/omarchy-atomic:44` as the deployment origin, so `bootc upgrade`
+has nowhere to pull from afterwards. That's fine for a test install; add `--target-imgref` to the
+bootc line if the machine should track GHCR instead.
+
 The Apple stub / m1n1 stage 1 are never touched — so this cannot brick stage 1, and the old OS
 stays at `/sysroot`. Recovery: restore `m1n1/boot.bin` from `/var/tmp/asahi-esp-backup` (or from
 macOS 1TR) if the machine won't boot.
