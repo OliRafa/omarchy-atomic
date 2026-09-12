@@ -50,6 +50,13 @@ echo "== A) omarchy-firstboot-user (preseed) creates the primary user =="
 # Provisioning must not depend on it.
 systemd-machine-id-setup >/dev/null 2>&1 || head -c16 /dev/urandom | od -An -tx1 | tr -d ' \n' >/etc/machine-id
 [ -s /etc/machine-id ] && ok "/etc/machine-id populated (simulating a non-first boot)" || no "could not populate /etc/machine-id"
+# And a systemd DynamicUser= account, the way nss-systemd surfaces one. On Asahi, speakersafetyd
+# runs with DynamicUser= at uid 62454; systemd allocates that range (61184-65519), and a
+# uid>=1000 && uid<65534 "is there a human user" test counts it as one. The helper skipped on a
+# machine that had no human user at all. Seeding it here makes the assertions below meaningful:
+# provisioning must still happen with this account present.
+echo 'speakersafetyd:x:62454:62454:Dynamic User:/:/usr/sbin/nologin' >>/etc/passwd
+ok "seeded a DynamicUser-range account (uid 62454)"
 install -d /etc/omarchy
 cat >/etc/omarchy/firstboot-user.conf <<EOF
 OMARCHY_USER=$U

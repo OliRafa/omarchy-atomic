@@ -56,13 +56,15 @@ trap 'rm -rf "$test_tmp"' EXIT
 mock_bin="$test_tmp/bin"
 mkdir -p "$mock_bin"
 
-# HUMAN_USER=1 makes getent report an existing uid-1000 account.
+# HUMAN_USER=1 adds a real uid-1000 account; DYNAMIC_USER=1 adds a systemd DynamicUser= account
+# the way nss-systemd surfaces it (never in /etc/passwd, always in getent).
 cat >"$mock_bin/getent" <<'SH'
 #!/bin/bash
 case $1 in
   passwd)
     echo 'root:x:0:0:root:/root:/bin/bash'
     echo 'bin:x:1:1:bin:/bin:/sbin/nologin'
+    [[ ${DYNAMIC_USER:-0} == 1 ]] && echo 'speakersafetyd:x:62454:62454:Dynamic User:/:/usr/sbin/nologin'
     [[ ${HUMAN_USER:-0} == 1 ]] && echo 'someone:x:1000:1000::/var/home/someone:/bin/bash'
     ;;
   group) [[ $2 == wheel ]] ;;
@@ -128,7 +130,24 @@ pass "run with an existing user creates nothing"
 [[ -f $marker ]] || fail "run with an existing user still marks done"
 pass "run with an existing user still marks done"
 
-# 3) Provisioning FAILS: must NOT mark done, so the next boot retries instead of latching off with
+# 3) A systemd DynamicUser= account must not read as a human user. speakersafetyd (Asahi speaker
+#    protection) runs with DynamicUser= and lands at uid 62454; systemd allocates that range
+#    (61184-65519) and nss-systemd shows it in getent. A uid>=1000 && uid<65534 test counts it as a
+#    human account, so the helper skipped on a machine with NO human user and SDDM greeted with
+#    nothing to log in as. login.defs UID_MAX (60000 on Fedora) is the bound that excludes it.
+: >"$mock_log"; rm -f "$marker"; write_preseed
+DYNAMIC_USER=1 run_helper || fail "run alongside a DynamicUser account succeeds" "$(cat "$test_tmp/out.log")"
+grep -q '^useradd .*tester' "$mock_log" ||
+  fail "a DynamicUser account does not count as a human user" "helper skipped; log: $(cat "$test_tmp/out.log")"
+pass "a DynamicUser account does not count as a human user"
+
+# ...but a real account in the login.defs range still counts, alongside the dynamic one.
+: >"$mock_log"; rm -f "$marker"; write_preseed
+DYNAMIC_USER=1 HUMAN_USER=1 run_helper || fail "run with both account kinds succeeds"
+grep -q '^useradd' "$mock_log" && fail "a real human user is still detected" "$(cat "$mock_log")"
+pass "a real human user is still detected"
+
+# 4) Provisioning FAILS: must NOT mark done, so the next boot retries instead of latching off with
 #    no account — the shape of the original bug, reached by a different route.
 : >"$mock_log"; rm -f "$marker"; write_preseed
 if USERADD_RC=1 run_helper; then

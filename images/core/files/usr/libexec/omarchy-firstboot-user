@@ -35,7 +35,19 @@ mark_done() {
 }
 
 # Already have a human user? Nothing to do.
-if getent passwd | awk -F: '$3>=1000 && $3<65534 {found=1} END{exit !found}'; then
+#
+# The bounds come from login.defs — the range useradd itself allocates from — NOT a hand-rolled
+# 1000..65533. systemd's DynamicUser= accounts are allocated from 61184-65519 and surface in
+# `getent passwd` through nss-systemd (they are never in /etc/passwd). On Asahi, speakersafetyd
+# runs exactly that way: uid 62454, which the old range counted as a human account. The helper
+# then skipped on a machine that had no human user at all, and SDDM greeted with nothing to log
+# in as — the same dead-end greeter, reached after the ConditionFirstBoot gate was fixed.
+uid_min=$(awk '$1 == "UID_MIN" { print $2 }' /etc/login.defs 2>/dev/null)
+uid_max=$(awk '$1 == "UID_MAX" { print $2 }' /etc/login.defs 2>/dev/null)
+uid_min=${uid_min:-1000}
+uid_max=${uid_max:-60000}
+
+if getent passwd | awk -F: -v lo="$uid_min" -v hi="$uid_max" '$3>=lo && $3<=hi {found=1} END{exit !found}'; then
   log "a human user already exists — skipping"
   mark_done
   exit 0
