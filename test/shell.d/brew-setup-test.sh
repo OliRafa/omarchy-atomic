@@ -21,9 +21,13 @@
 #     network-online.target is routinely reached before DNS answers, and the whole service failed
 #     inside a single second without ever naming the real cause.
 #
-# (2) is now structurally impossible: there is no download. What remains is that the helper must
-# still resolve the right account, must re-own the prefix away from ublue's hardcoded uid 1000, and
-# must fail loudly rather than silently when the unpack has not happened.
+# (2) is now structurally impossible: there is no download. But it left wreckage behind, and that
+# produced a THIRD hardware failure: the old helper ran `install -d /home/linuxbrew "$PREFIX"`
+# before the download it then lost, so machines that attempted the runtime install carry an EMPTY
+# prefix directory. ublue's brew-setup.service is gated on
+# `ConditionPathExists=!/home/linuxbrew/.linuxbrew`, so that leftover directory makes the unpack
+# skip — silently, on every boot, forever. Same shape as the half-written BLS entry that wedged
+# `bootc upgrade`: debris from a failed attempt disabling its own replacement.
 
 source "$(dirname "$0")/base-test.sh"
 
@@ -225,7 +229,52 @@ pass "a failed chown fails the run"
 [[ ! -f $stamp ]] || fail "a failed chown leaves no stamp"
 pass "a failed chown leaves no stamp"
 
-# --- 4) the unpack must have happened -------------------------------------------------------------
+# --- 4) debris from the old runtime install must not block the unpack -----------------------------
+
+marker="$test_tmp/dot-linuxbrew"
+
+run_helper_m() { OMARCHY_BREW_MARKER="$marker" run_helper "$@"; }
+
+# The hardware case: an empty prefix, exactly what `install -d` left behind. It must be cleared so
+# brew-setup.service's ConditionPathExists=! can pass on the next boot.
+reset; mkdir -p "$prefix"; : >"$marker"
+HUMAN_USER=1 run_helper_m &&
+  fail "an empty prefix fails the run" "$(cat "$test_tmp/out.log")"
+pass "an empty prefix fails the run"
+grep -q "holds no Homebrew — clearing it" "$test_tmp/out.log" ||
+  fail "the empty prefix is reported as debris" "$(cat "$test_tmp/out.log")"
+pass "the empty prefix is reported as debris"
+[[ ! -e $prefix ]] || fail "the empty prefix is removed so the unpack can run next boot"
+pass "the empty prefix is removed"
+[[ ! -e $marker ]] || fail "ublue's marker is cleared too — it was claiming a done unpack"
+pass "ublue's /etc/.linuxbrew marker is cleared too"
+
+# A REAL install must never be cleared, however this helper is feeling about it. bin/brew in the
+# shipped tree is a symlink, so -e (not -f) is what decides.
+reset; mkdir -p "$prefix/bin"; ln -s /nonexistent "$prefix/bin/brew"
+HUMAN_USER=1 run_helper_m &&
+  fail "a prefix with bin/brew fails (brew is not executable) but is not cleared" "$(cat "$test_tmp/out.log")"
+# -L, not -e: the link is deliberately dangling here, and -e follows it — the same blind spot the
+# helper itself had to be taught about.
+[[ -L $prefix/bin/brew ]] || fail "a prefix holding bin/brew must never be cleared"
+pass "a prefix holding bin/brew (even a symlink) is never cleared"
+grep -q "clearing it" "$test_tmp/out.log" &&
+  fail "a prefix holding bin/brew must not be called debris" "$(cat "$test_tmp/out.log")"
+pass "a prefix holding bin/brew is not called debris"
+
+reset; mkdir -p "$prefix/Homebrew/Library"
+HUMAN_USER=1 run_helper_m && fail "a prefix with Homebrew/ still fails without bin/brew"
+[[ -d $prefix/Homebrew ]] || fail "a prefix holding Homebrew/ must never be cleared"
+pass "a prefix holding Homebrew/ is never cleared"
+
+# A working install is untouched and proceeds normally.
+reset; unpack; : >"$marker"
+HUMAN_USER=1 run_helper_m || fail "a working prefix still succeeds" "$(cat "$test_tmp/out.log")"
+[[ -x $prefix/bin/brew ]] || fail "a working prefix survives"
+[[ -e $marker ]] || fail "a working prefix leaves ublue's marker alone"
+pass "a working prefix is untouched, marker included"
+
+# --- 5) the unpack must have happened -------------------------------------------------------------
 
 # Homebrew ships in the image now, so a missing prefix means ublue's brew-setup.service has not run
 # or has failed. That must be named, not rediscovered as "brew: command not found" from a login
@@ -234,7 +283,7 @@ reset
 HUMAN_USER=1 run_helper &&
   fail "a missing brew fails the run" "$(cat "$test_tmp/out.log")"
 pass "a missing brew fails the run"
-grep -q "has brew-setup.service unpacked" "$test_tmp/out.log" ||
+grep -q "brew-setup.service has not unpacked" "$test_tmp/out.log" ||
   fail "the failure names the unpack" "$(cat "$test_tmp/out.log")"
 pass "the failure names the unpack"
 grep -q "brew bundle failed" "$test_tmp/out.log" &&
@@ -243,7 +292,7 @@ pass "a missing brew never reaches brew bundle"
 [[ ! -f $stamp ]] || fail "a missing brew leaves no stamp, so it retries next boot"
 pass "a missing brew leaves no stamp"
 
-# --- 5) idempotence -----------------------------------------------------------------------------
+# --- 6) idempotence -----------------------------------------------------------------------------
 
 reset; unpack; mkdir -p "$(dirname "$stamp")"; : >"$stamp"
 HUMAN_USER=1 run_helper || fail "a stamped run succeeds" "$(cat "$test_tmp/out.log")"

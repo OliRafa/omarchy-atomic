@@ -25,6 +25,8 @@ BREWFILE="${OMARCHY_BREW_FILE:-/usr/share/omarchy-atomic/Brewfile}"
 STAMP="${OMARCHY_BREW_STAMP:-/var/lib/omarchy/brew-setup-done}"
 PREFIX="${OMARCHY_BREW_PREFIX:-/home/linuxbrew/.linuxbrew}"
 LOGIN_DEFS="${OMARCHY_LOGIN_DEFS:-/etc/login.defs}"
+# ublue's "already unpacked" marker; brew-setup.service is gated on it not existing.
+BREW_MARKER="${OMARCHY_BREW_MARKER:-/etc/.linuxbrew}"
 BREW="$PREFIX/bin/brew"
 
 [ -f "$BREWFILE" ] || { echo "brew-setup: no Brewfile at $BREWFILE"; exit 0; }
@@ -51,10 +53,35 @@ if [ -z "${user:-}" ]; then
   exit 0   # no stamp -> retry
 fi
 
+# An EMPTY prefix is worse than no prefix. ublue's brew-setup.service is gated on
+#   ConditionPathExists=!/home/linuxbrew/.linuxbrew
+# so a leftover directory makes the unpack skip — silently, forever. The older version of this
+# helper created exactly that: it ran `install -d /home/linuxbrew "$PREFIX"` and then failed to
+# download anything, so every machine that attempted the runtime install and lost carries debris
+# that permanently blocks the prebuilt tree from ever landing. Same shape as the half-written BLS
+# entry that wedged `bootc upgrade`: wreckage from a failed attempt disabling its own replacement.
+#
+# Clear it, and clear ublue's /etc/.linuxbrew marker with it — a marker claiming the unpack is done
+# while the prefix is empty is simply wrong. Guarded tightly: a prefix holding either bin/brew or
+# Homebrew/ is a real install and is never touched.
+if [ ! -x "$BREW" ] && [ -d "$PREFIX" ]; then
+  # -L as well as -e: bin/brew in the shipped tree is a SYMLINK into Homebrew/, and -e follows it.
+  # A dangling one means something is wrong, but "wrong" is not "mine to delete" — only a prefix
+  # with no bin/brew entry at all and no Homebrew/ is unambiguously the empty directory
+  # `install -d` left behind.
+  if [ ! -e "$PREFIX/bin/brew" ] && [ ! -L "$PREFIX/bin/brew" ] && [ ! -d "$PREFIX/Homebrew" ]; then
+    echo "brew-setup: $PREFIX exists but holds no Homebrew — clearing it so brew-setup.service can unpack"
+    rm -rf "$PREFIX"
+    rmdir "$(dirname "$PREFIX")" 2>/dev/null || true
+    rm -f "$BREW_MARKER"
+  fi
+fi
+
 # The image ships Homebrew; if it is not unpacked, ublue's brew-setup.service has not run or has
 # failed. Say so, rather than blaming the bundle two commands later, and retry next boot.
 if [ ! -x "$BREW" ]; then
-  echo "brew-setup: $BREW is missing — has brew-setup.service unpacked /usr/share/homebrew.tar.zst?" >&2
+  echo "brew-setup: $BREW is missing — brew-setup.service has not unpacked /usr/share/homebrew.tar.zst." >&2
+  echo "brew-setup: check it with: systemctl status brew-setup.service" >&2
   exit 1
 fi
 
