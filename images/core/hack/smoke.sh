@@ -99,6 +99,19 @@ for b in aether cliamp omacut omawrite; do
   [ -e "/usr/bin/$b" ] && no "$b is baked in — belongs in the preinstalls image" || ok "$b absent from core"
 done
 
+# brew + flatpak provisioning is CORE, not preinstalls: core's mimeapps repoints (asserted below)
+# and omarchy-default-editor depend on apps these services install. Neither can be baked into /usr
+# (brew needs a writable user-owned prefix, flatpaks live in /var), so assert the first-boot wiring.
+echo "== brew + flatpak first-boot provisioning (core dependencies) =="
+[ -s /usr/share/omarchy-atomic/Brewfile ] && ok "Brewfile shipped" || no "Brewfile missing"
+[ -s /usr/share/omarchy-atomic/flatpaks ] && ok "flatpaks list shipped" || no "flatpaks list missing"
+command -v flatpak >/dev/null 2>&1 && ok "flatpak present" || no "flatpak missing"
+for svc in omarchy-flatpak-setup omarchy-brew-setup; do
+  [ -x "/usr/libexec/$svc" ] && ok "/usr/libexec/$svc" || no "/usr/libexec/$svc missing"
+  [ -L "/etc/systemd/system/multi-user.target.wants/$svc.service" ] \
+    && ok "$svc.service enabled" || no "$svc.service not enabled"
+done
+
 echo "== profile.d hooks =="
 [ -f /etc/profile.d/omarchy-path.sh ] && ok "omarchy-path.sh" || no "omarchy-path.sh missing"
 [ -f /etc/profile.d/omarchy-brew.sh ] && ok "omarchy-brew.sh (brew shellenv)" || no "omarchy-brew.sh missing"

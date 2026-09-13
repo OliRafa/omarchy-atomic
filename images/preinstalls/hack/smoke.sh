@@ -19,11 +19,12 @@ for b in aether cliamp omacut omawrite; do
   [ -e "/usr/bin/$b" ] && ok "/usr/bin/$b" || no "/usr/bin/$b missing"
 done
 
-echo "== app lists shipped in the image =="
+# These all come from the CORE image now (Containerfile step 5c) — brew and flatpak provisioning
+# are core dependencies. Still asserted here so a broken inheritance shows up in this tier too.
+echo "== app lists + provisioning inherited from core =="
 [ -s /usr/share/omarchy-atomic/Brewfile ] && ok "Brewfile shipped" || no "Brewfile missing"
 [ -s /usr/share/omarchy-atomic/flatpaks ] && ok "flatpaks list shipped" || no "flatpaks list missing"
 
-echo "== first-boot provisioning enabled =="
 command -v flatpak >/dev/null 2>&1 && ok "flatpak present (from core)" || no "flatpak missing"
 for svc in omarchy-flatpak-setup omarchy-brew-setup; do
   [ -x "/usr/libexec/$svc" ] && ok "/usr/libexec/$svc" || no "/usr/libexec/$svc missing"

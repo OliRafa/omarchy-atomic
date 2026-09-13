@@ -2,13 +2,11 @@
 #
 # FROM the core image; adds the removable, app-like layer:
 #   - app-like first-party tools (aether, cliamp, omacut, omawrite) — BAKED IN (just binaries)
-#   - Homebrew + Brewfile          — first-boot provisioning (can't be baked; see below)
-#   - Flatpak app set (Flathub)    — first-boot provisioning (can't be baked; see below)
 #
-# Why brew/flatpak are first-boot, not baked: both live in /var (machine-state), which a bootc
-# image only *seeds* on first boot and does not track on upgrades — so they cannot live in the
-# immutable /usr. Baking them would also balloon the image (Flatpaks are GBs) and go stale.
-# This is the same first-boot pattern uBlue/Bluefin/Bazzite use.
+# Homebrew and the Flatpak app set used to live here. They are CORE dependencies — core's
+# mimeapps.list and hypr config point at Brave/Loupe, and omarchy-default-editor at nvim — so a
+# core-only install had handlers for software it never installed. Their first-boot services now
+# ship in the core image (step 5c there) and are inherited here.
 #
 # Build (needs the core image built/pulled first):
 #   ./images/build.sh core && ./images/build.sh preinstalls
@@ -26,13 +24,8 @@ RUN dnf -y install sudo >/dev/null 2>&1 || true; \
       bash ${OMARCHY_PREFIX}/install/helpers/fedora-first-party.sh preinstalls || true; \
     rm -rf /var/tmp/fp; dnf clean all
 
-# 2) Ship the app lists (image-tracked) + first-boot provisioning services.
-COPY Brewfile install/flatpaks /usr/share/omarchy-atomic/
-COPY images/preinstalls/files/ /
-RUN chmod +x /usr/libexec/omarchy-brew-setup /usr/libexec/omarchy-flatpak-setup \
- && systemctl enable omarchy-flatpak-setup.service omarchy-brew-setup.service
-
-# 3) Clean build residue + bootc lint.
+# 2) Clean build residue + bootc lint. (The app lists and their first-boot services come from
+#    core; nothing app-provisioning-related is added here any more.)
 RUN rm -rf /var/cache/dnf /var/cache/libdnf5 /var/lib/dnf/repos /var/lib/dnf/history* \
  && rm -f /var/log/dnf5.log* /var/log/dnf.log* /var/log/hawkey.log* \
  && rm -rf /run/dnf /tmp/* \

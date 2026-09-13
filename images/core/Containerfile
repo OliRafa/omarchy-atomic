@@ -155,6 +155,25 @@ RUN set -eux; \
     systemctl enable omarchy-firstboot-user.service; \
     systemctl enable systemd-firstboot.service 2>/dev/null || true
 
+# 5c) Brew + Flatpak first-boot provisioning. These are CORE dependencies here, not app-tier
+#     extras, and they used to live in the preinstalls image — so a core-only install shipped
+#     commands and mime handlers pointing at software that was never going to arrive:
+#       - mimeapps.list maps http(s) to com.brave.Browser and images to org.gnome.Loupe, and
+#         hypr/apps/system.lua launches Loupe; all three come from install/flatpaks.
+#       - omarchy-default-editor runs nvim, and tmux/gh resolve the same way — all from the Brewfile,
+#         which says so itself ("PREREQUISITE (core concern)").
+#     hack/smoke.sh asserts those mimeapps repoints, so core was already testing for apps it did not
+#     install.
+#
+#     Neither can be baked into /usr. Homebrew needs a writable prefix owned by a human user, and
+#     Flatpaks live in /var/lib/flatpak — machine state bootc only seeds on first boot. So they stay
+#     first-boot services; only their tier changes. Both are idempotent and re-run until they
+#     succeed: brew waits for a primary user, flatpak stamps done only once every app is present.
+COPY Brewfile install/flatpaks /usr/share/omarchy-atomic/
+RUN set -eux; \
+    chmod +x /usr/libexec/omarchy-brew-setup /usr/libexec/omarchy-flatpak-setup; \
+    systemctl enable omarchy-flatpak-setup.service omarchy-brew-setup.service
+
 # 6) Core first-party tools (tensaku, voxtype, tobi-try, hyprland-preview-share-picker).
 #    The app-like first-party tools (aether/cliamp/omacut/omawrite) are deliberately NOT
 #    here — they belong to the preinstalls image.

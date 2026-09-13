@@ -130,6 +130,21 @@ reboot                           # ...and this boot uses it
 Set `OMARCHY_M1N1_AUTOREBOOT=1` in `/etc/default/omarchy-m1n1` to make the service do reboot
 #2 automatically when the DT changed.
 
+## Brew + Flatpak are core, not preinstalls
+
+Homebrew and the Flatpak app set provision on first boot from the **core** image
+(`images/core/Containerfile` step 5c), not from preinstalls. They are core dependencies: core's
+`mimeapps.list` maps http(s) to `com.brave.Browser` and images to `org.gnome.Loupe`,
+`hypr/apps/system.lua` launches Loupe, and `omarchy-default-editor` runs `nvim` — Brave and Loupe
+come from `install/flatpaks`, nvim from the `Brewfile`. While they lived in preinstalls, a core-only
+install shipped handlers and commands for software it never installed, and `hack/smoke.sh` asserted
+those repoints without asserting anything installed them.
+
+Neither can be baked into `/usr`: Homebrew needs a writable prefix owned by a human user, and
+Flatpaks live in `/var/lib/flatpak`, which bootc only seeds on first boot. So both stay first-boot
+services (`omarchy-brew-setup`, `omarchy-flatpak-setup`), idempotent and re-running until they
+succeed — brew waits for a primary user, flatpak stamps done only once every app is present.
+
 ## Known bootc follow-ups (tracked; not blockers for the core build)
 
 - **Full config + systemd integration** — *done*: `install/helpers/fedora-image-userland.sh` bakes
