@@ -19,6 +19,49 @@
 # OMARCHY_M1N1_AUTOREBOOT=1 (in /etc/default/omarchy-m1n1) to auto-reboot when it changed.
 set -uo pipefail
 
+# update-m1n1 is a distro script (/usr/bin/sh) that runs `set -e` and, at its core, does:
+#     gzip -c "$U_BOOT" >>"${TARGET}.new"
+# Every file in an ostree/composefs deployment has mtime 0 — timestamps are normalised at commit —
+# and GNU gzip treats a zero mtime as "file timestamp out of range for gzip format": it warns and
+# exits 2. Under `set -e` that kills update-m1n1 before it writes boot.bin, so on an atomic install
+# the m1n1 + devicetree refresh fails every time. Confirmed on hardware (gzip 1.12, Fedora Asahi
+# Remix 44): the compressed output is correct, only the exit status is fatal.
+#
+# /usr is read-only, so we cannot fix the blob's mtime in place. Hand gzip a copy that has a real
+# one instead, bind-mounted over the original inside a private mount namespace that unwinds itself
+# when update-m1n1 exits. Harmless once the distro stops exiting non-zero on the warning.
+UBOOT_BLOB="${UBOOT_BLOB:-/usr/share/uboot/apple_m1/u-boot-nodtb.bin}"
+
+# Copy the blob somewhere writable, which gives it the current time (plain cp preserves no
+# timestamps). Echoes the copy's path. Split out so the fix is testable without privileges.
+stage_gzip_safe_uboot() {
+  local src="$1" dir
+  dir="$(mktemp -d)" || return 1
+  cp -- "$src" "$dir/$(basename -- "$src")" || { rm -rf "$dir"; return 1; }
+  printf '%s\n' "$dir/$(basename -- "$src")"
+}
+
+run_update_m1n1() {
+  local staged rc
+  if [ ! -e "$UBOOT_BLOB" ]; then
+    update-m1n1
+    return
+  fi
+  staged="$(stage_gzip_safe_uboot "$UBOOT_BLOB")" || {
+    echo "apply-m1n1: could not stage $UBOOT_BLOB — running update-m1n1 unmodified" >&2
+    update-m1n1
+    return
+  }
+  unshare --mount --propagation private -- \
+    sh -c 'mount --bind "$1" "$2" && exec update-m1n1' _ "$staged" "$UBOOT_BLOB"
+  rc=$?
+  rm -rf -- "$(dirname -- "$staged")"
+  return "$rc"
+}
+
+# Tests source this file for the two functions above; stop before the refresh runs.
+[ "${OMARCHY_APPLY_M1N1_LIB:-0}" = 1 ] && return 0
+
 [ "$(uname -m)" = aarch64 ] || exit 0
 command -v update-m1n1 >/dev/null 2>&1 || exit 0     # not an Asahi machine
 
@@ -29,7 +72,7 @@ changed=0
 kstamp="$state/m1n1-applied"; cur="$(uname -r)"
 if [ "$(cat "$kstamp" 2>/dev/null)" != "$cur" ]; then
   echo "apply-m1n1: refreshing m1n1 + devicetree for kernel $cur"
-  if update-m1n1; then printf '%s\n' "$cur" >"$kstamp"; changed=1
+  if run_update_m1n1; then printf '%s\n' "$cur" >"$kstamp"; changed=1
   else echo "apply-m1n1: update-m1n1 FAILED" >&2; exit 1; fi
 else
   echo "apply-m1n1: boot.bin already current for $cur (left in place)"
