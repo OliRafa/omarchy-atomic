@@ -149,6 +149,7 @@ partial run is expected, and it skips whatever is already done:
 3. **Grow the filesystem**: snapshot the whole ESP (refusing an empty snapshot), `mkfs.vfat`
    reusing its volume ID and label, restore, and verify `m1n1/boot.bin` and
    `EFI/BOOT/BOOTAA64.EFI` are back before reporting success.
+4. **Prune half-written boot entries** (see below), then verify none survived.
 
 **Nothing in the tool trusts a device node to exist.** It finds the disk by scanning GPTs for the
 device tree's PARTUUID and takes every fact from `sfdisk -d`, never `blkid` or `lsblk`. That is not
@@ -162,6 +163,34 @@ Preserving the ESP's PARTUUID is the load-bearing part:
 only from macOS 1TR. `deploy/tests/gpt-absorb.test.sh` asserts exactly that, off-hardware;
 `deploy/tests/esp-capacity.test.sh` covers the "will it fit?" arithmetic. Both run in
 `core-image-e2e.yml`.
+
+### A half-written boot entry wedges every future upgrade
+
+Growing the ESP is necessary but not sufficient. bootc stages a deployment as
+`<ESP>/EFI/Linux/bootc_composefs-<verity>/{vmlinuz,initrd}`, writing vmlinuz first. An upgrade that
+dies between the two — ENOSPC is how we hit it; a power cut or a `^C` does the same — leaves that
+directory with vmlinuz and no initrd.
+
+That debris is not inert. The next upgrade calls `find_vmlinuz_initrd_duplicate()`, which hashes
+vmlinuz **and** initrd in *every* `bootc_composefs-*` directory before writing anything
+(`compute_boot_digest_type1`). One directory missing its initrd fails the whole operation:
+
+```
+error: Upgrading composefs: … Setting up BLS boot: Checking boot entry duplicates:
+       Computing boot digest for Type1 entries: Opening initrd: No such file or directory
+```
+
+So a single interrupted upgrade blocks every later one permanently, and freeing space does not
+help. Growing the ESP alone leaves you stuck at the same place with a different error — the ESP
+backup/restore preserves the corpse faithfully, which is why the prune runs *after* the restore.
+
+A directory missing either half is unbootable by definition, so deleting it loses nothing.
+Complete directories are never touched — that is bootc's own garbage collection to do, and one of
+them is what you booted. To clear the debris without any partition surgery:
+
+```sh
+sudo deploy/omarchy-atomic-grow-esp --prune-only
+```
 
 ## Images, signing & updates
 

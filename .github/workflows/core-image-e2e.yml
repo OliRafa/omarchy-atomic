@@ -52,6 +52,9 @@ jobs:
       # A boot entry left naming the absorbed partition is an emergency-mode boot.
       - name: Boot entry repair (deploy/lib/esp-boot-entries.sh)
         run: bash deploy/tests/esp-boot-entries.test.sh
+      # One half-written boot entry fails every future `bootc upgrade`, whatever the ESP's size.
+      - name: Half-written BLS entry prune (deploy/lib/esp-bls-prune.sh)
+        run: bash deploy/tests/esp-bls-prune.test.sh
 
   e2e:
     runs-on: ubuntu-24.04-arm

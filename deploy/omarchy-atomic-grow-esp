@@ -47,13 +47,16 @@ _here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$_here/lib/esp-capacity.sh"
 # shellcheck source=lib/esp-boot-entries.sh
 . "$_here/lib/esp-boot-entries.sh"
+# shellcheck source=lib/esp-bls-prune.sh
+. "$_here/lib/esp-bls-prune.sh"
 
-ABSORB="" DRY_RUN=0 ASSUME_YES=0 BACKUP_DIR="/var/tmp/asahi-esp-backup"
+ABSORB="" DRY_RUN=0 ASSUME_YES=0 PRUNE_ONLY=0 BACKUP_DIR="/var/tmp/asahi-esp-backup"
 usage() {
   cat >&2 <<'EOF'
 usage: omarchy-atomic-grow-esp --absorb <partition> [--dry-run] [--yes] [--backup-dir DIR]
 
   --absorb DEV     partition to destroy and fold into the ESP (must directly follow it)
+  --prune-only     only remove half-written boot entries from the ESP; no partition surgery
   --dry-run        print the plan and the new partition table; touch nothing
   --yes            skip the interactive confirmations
   --backup-dir DIR where to snapshot the ESP (default: /var/tmp/asahi-esp-backup)
@@ -65,6 +68,7 @@ EOF
 while (( $# )); do
   case "$1" in
     --absorb) ABSORB="${2:?--absorb needs a partition}"; shift 2 ;;
+    --prune-only) PRUNE_ONLY=1; shift ;;
     --dry-run) DRY_RUN=1; shift ;;
     --yes) ASSUME_YES=1; shift ;;
     --backup-dir) BACKUP_DIR="${2:?--backup-dir needs a path}"; shift 2 ;;
@@ -72,7 +76,9 @@ while (( $# )); do
     *) echo "unknown argument: $1" >&2; usage ;;
   esac
 done
-[[ -n $ABSORB ]] || usage
+if (( ! PRUNE_ONLY )); then
+  [[ -n $ABSORB ]] || usage
+fi
 
 die() { echo "$@" >&2; exit 1; }
 
@@ -193,6 +199,9 @@ fi
 # The ESP is normally mounted nowhere on this layout, so mount it on demand.
 esp_mnt="" esp_mnt_is_ours=0
 mount_esp_rw() {
+  # Idempotent: a second call while we already hold the mount must not forget that the tempdir is
+  # ours to remove, or unmount_esp leaves it behind.
+  [[ -z $esp_mnt ]] || return 0
   esp_mnt="$(findmnt -no TARGET --source "$esp_dev" 2>/dev/null | head -1 || true)"
   if [[ -n $esp_mnt ]]; then
     mount -o remount,rw "$esp_mnt" 2>/dev/null || true
@@ -216,7 +225,10 @@ unmount_esp() {
 # 1) Does the table still need rewriting? Re-running after a partial run must not redo this.
 esp_sectors="$(gpt_field "$esp_dev" size "$table")"
 need_table_rewrite=0
-if gpt_field "$ABSORB" start "$table" >/dev/null 2>&1; then
+new_sectors="$esp_sectors"
+if (( PRUNE_ONLY )); then
+  echo "==> --prune-only: leaving the partition table and $esp_dev alone"
+elif gpt_field "$ABSORB" start "$table" >/dev/null 2>&1; then
   [[ -b $ABSORB ]] || die "$ABSORB is in the partition table but not a block device"
   [[ "/dev/$(lsblk -no PKNAME "$ABSORB")" == "$disk" ]] || die "$ABSORB is not on $disk"
   [[ $ABSORB != "$esp_dev" ]] || die "refusing to absorb the ESP into itself"
@@ -239,7 +251,6 @@ if gpt_field "$ABSORB" start "$table" >/dev/null 2>&1; then
   need_table_rewrite=1
   echo "==> $esp_dev: $(mib "$esp_sectors") MiB -> $(mib "$new_sectors") MiB (absorbing $ABSORB)"
 else
-  new_sectors="$esp_sectors"
   echo "==> $ABSORB is already gone from the partition table; $esp_dev is $(mib "$esp_sectors") MiB"
 fi
 
@@ -265,6 +276,17 @@ if (( DRY_RUN )); then
     unmount_esp
   else
     echo "==> boot entries cannot be read until the kernel has the ESP's device node back" >&2
+  fi
+  if [[ -b $esp_dev ]]; then
+    mount_esp_rw
+    partials="$(esp_partial_bls_dirs "$esp_mnt")"
+    if [[ -n $partials ]]; then
+      echo "==> half-written boot entries that would be pruned:"
+      printf '      %s\n' $partials
+    else
+      echo "==> no half-written boot entries to prune"
+    fi
+    unmount_esp
   fi
   echo
   echo "==> --dry-run: nothing was written."
@@ -356,6 +378,18 @@ else
   esp_repoint_entries "$esp_mnt" "$esp_volid" || true
 fi
 
+# An interrupted upgrade leaves <ESP>/EFI/Linux/bootc_composefs-<id>/ with vmlinuz and no initrd,
+# and bootc hashes BOTH halves of EVERY such directory before it writes anything — so one corpse
+# fails every future upgrade with "Computing boot digest for Type1 entries: Opening initrd: No such
+# file or directory", no matter how much room the ESP now has. The backup/restore above preserves
+# it faithfully, which is exactly why this runs after the restore rather than before the backup.
+mount_esp_rw
+if esp_prune_partial_bls "$esp_mnt"; then
+  echo "==> pruned half-written boot entries"
+else
+  echo "==> no half-written boot entries to prune"
+fi
+
 # Verify. An ESP that mounts but has lost m1n1 stage 2 is a machine that does not come back.
 fail=0
 for want in m1n1/boot.bin EFI/BOOT/BOOTAA64.EFI; do
@@ -366,6 +400,11 @@ while read -r stray; do
   echo "boot entry still references a non-ESP partition: $stray" >&2
   fail=1
 done < <(grep -rhoE 'systemd\.mount-extra=UUID=[^ ]+' "$esp_mnt/loader/entries" 2>/dev/null || true)
+while read -r stray; do
+  [[ -n $stray ]] || continue
+  echo "half-written boot entry survived the prune: $stray" >&2
+  fail=1
+done < <(esp_partial_bls_dirs "$esp_mnt")
 
 usable="$(esp_usable_bytes "$esp_mnt")"
 payload="$(esp_payload_bytes)"
@@ -375,5 +414,9 @@ unmount_esp
 (( fail == 0 )) || die "verification FAILED — restore from $BACKUP_DIR before rebooting"
 
 echo
-echo "==> DONE. $esp_dev is $(mib "$new_sectors") MiB, PARTUUID unchanged ($esp_uuid)."
-echo "    Backup kept at $BACKUP_DIR. Reboot, then run: sudo bootc upgrade"
+if (( PRUNE_ONLY )); then
+  echo "==> DONE. $esp_dev left as it was ($(mib "$esp_sectors") MiB); run: sudo bootc upgrade"
+else
+  echo "==> DONE. $esp_dev is $(mib "$new_sectors") MiB, PARTUUID unchanged ($esp_uuid)."
+  echo "    Backup kept at $BACKUP_DIR. Reboot, then run: sudo bootc upgrade"
+fi
