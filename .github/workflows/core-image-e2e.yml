@@ -49,6 +49,9 @@ jobs:
       # The grown ESP must keep its PARTUUID — the Asahi device tree finds m1n1 stage 2 by it.
       - name: GPT absorb table (deploy/omarchy-atomic-grow-esp)
         run: bash deploy/tests/gpt-absorb.test.sh
+      # A boot entry left naming the absorbed partition is an emergency-mode boot.
+      - name: Boot entry repair (deploy/lib/esp-boot-entries.sh)
+        run: bash deploy/tests/esp-boot-entries.test.sh
 
   e2e:
     runs-on: ubuntu-24.04-arm

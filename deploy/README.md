@@ -128,12 +128,29 @@ sudo deploy/omarchy-atomic-grow-esp --absorb /dev/nvme0n1p5
 sudo reboot && sudo bootc upgrade
 ```
 
-The tool refuses unless the partition really follows the ESP, is unmounted, and is not backing the
-running system; snapshots the whole ESP first (and refuses an empty snapshot); rewrites the GPT
-from an `sfdisk -d` dump so **every PARTUUID is preserved verbatim**; reformats the grown ESP
-reusing its volume ID and label; restores the backup; repoints any boot entry that referenced the
-absorbed partition; and verifies `m1n1/boot.bin` and `EFI/BOOT/BOOTAA64.EFI` are back before it
-reports success.
+The tool runs in phases, and **each one is separately resumable** — re-running after an aborted or
+partial run is expected, and it skips whatever is already done:
+
+0. **Repoint the boot entries first**, before anything is destroyed. A leftover
+   `systemd.mount-extra=UUID=<gone>:/boot:…` karg makes systemd wait on a mount that can never
+   appear: `local-fs.target` fails and the machine drops to emergency mode, *after* the partition
+   table has been rewritten. The repair is keyed on "this UUID is not the ESP" rather than on the
+   absorbed partition's UUID, because once the table is rewritten that UUID can no longer be read.
+1. **Rewrite the GPT** from an `sfdisk -d` dump so every PARTUUID is preserved verbatim. Refuses
+   unless the partition really follows the ESP, is unmounted, and is not backing the running
+   system.
+2. **Make the kernel adopt the table.** `BLKRRPART` always fails here — the root filesystem lives
+   on the same disk, so the kernel answers "Device or resource busy" and keeps the old table. The
+   tool drops the absorbed partition and updates the ESP with `partx`; if the kernel still
+   disagrees it stops and asks for a reboot rather than `mkfs` against a stale geometry. Rebooting
+   at that point is safe precisely because phase 0 already ran.
+3. **Grow the filesystem**: snapshot the whole ESP (refusing an empty snapshot), `mkfs.vfat`
+   reusing its volume ID and label, restore, and verify `m1n1/boot.bin` and
+   `EFI/BOOT/BOOTAA64.EFI` are back before reporting success.
+
+Verification reads the partition table with `sfdisk -d`, straight off the disk, never `blkid`:
+after a failed `BLKRRPART` the kernel's view is stale and `blkid` can report a partition's
+attributes as missing entirely.
 
 Preserving the ESP's PARTUUID is the load-bearing part:
 `/proc/device-tree/chosen/asahi,efi-system-partition` holds it, and m1n1 stage 1 uses it to find

@@ -15,15 +15,20 @@
 #   ostree + GRUB layout wants. An omarchy-atomic machine does not use that /boot at all — so it
 #   is exactly the space the ESP is missing. This tool moves it across.
 #
-# WHAT IT DOES
-#   1. Resolves the ESP the way m1n1 does (asahi,efi-system-partition PARTUUID).
-#   2. Refuses unless the partition to absorb really follows the ESP, is unmounted, and is not
-#      backing the running system.
-#   3. Backs up the WHOLE ESP to the root filesystem (and refuses if that backup is empty).
-#   4. Rewrites the GPT from an `sfdisk -d` dump, preserving every PARTUUID verbatim — the Asahi
-#      device tree finds the ESP by the ESP's PARTUUID, so changing it bricks the boot chain.
-#   5. mkfs.vfat over the grown ESP, reusing its volume ID and label, then restores the backup.
-#   6. Repoints any boot entry that referenced the absorbed partition, and verifies the result.
+# ORDER OF OPERATIONS (each phase is separately resumable — re-running is safe and expected)
+#   0. Repoint any boot entry that names a partition other than the ESP, BEFORE anything is
+#      destroyed. A `systemd.mount-extra=UUID=<gone>:/boot:…` karg left behind fails
+#      local-fs.target on the next boot and drops you in emergency mode, so it must not survive
+#      even a run that aborts halfway.
+#   1. Rewrite the GPT from an `sfdisk -d` dump, preserving every PARTUUID verbatim — the Asahi
+#      device tree finds m1n1 stage 2 by the ESP's PARTUUID; change it and the Mac stops booting
+#      before Linux is reached. Skipped if the table already says what it should.
+#   2. Make the kernel adopt the new table. A live root on the same disk means BLKRRPART fails
+#      ("Device or resource busy"), so delete the absorbed partition and update the ESP with
+#      partx. If the kernel still disagrees, STOP and ask for a reboot rather than mkfs against a
+#      stale geometry — by then phase 0 has made rebooting safe.
+#   3. Back up the ESP, mkfs.vfat over the grown partition reusing its volume id and label,
+#      restore, verify. Skipped if the filesystem already fills the partition.
 #
 # THIS REWRITES YOUR PARTITION TABLE AND REFORMATS YOUR ESP. Read --dry-run output first, and
 # copy the backup off the machine before running for real.
@@ -40,6 +45,8 @@ _here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$_here/lib/gpt-absorb.sh"
 # shellcheck source=lib/esp-capacity.sh
 . "$_here/lib/esp-capacity.sh"
+# shellcheck source=lib/esp-boot-entries.sh
+. "$_here/lib/esp-boot-entries.sh"
 
 ABSORB="" DRY_RUN=0 ASSUME_YES=0 BACKUP_DIR="/var/tmp/asahi-esp-backup"
 usage() {
@@ -48,8 +55,10 @@ usage: omarchy-atomic-grow-esp --absorb <partition> [--dry-run] [--yes] [--backu
 
   --absorb DEV     partition to destroy and fold into the ESP (must directly follow it)
   --dry-run        print the plan and the new partition table; touch nothing
-  --yes            skip the interactive confirmation
+  --yes            skip the interactive confirmations
   --backup-dir DIR where to snapshot the ESP (default: /var/tmp/asahi-esp-backup)
+
+Safe to re-run: each phase is skipped once it has already been done.
 EOF
   exit 1
 }
@@ -71,149 +80,227 @@ die() { echo "$@" >&2; exit 1; }
 [[ $(uname -m) == "aarch64" ]] || die "aarch64 (Apple Silicon) only"
 [[ -e /proc/device-tree/chosen/asahi,efi-system-partition ]] || \
   die "no asahi,efi-system-partition — is this a Fedora Asahi (Apple Silicon) system?"
-for c in sfdisk blkid findmnt mkfs.vfat partx; do
+for c in sfdisk blkid findmnt mkfs.vfat partx blockdev; do
   command -v "$c" >/dev/null || die "$c is required but not installed"
 done
 
-# 1) Resolve the ESP the way m1n1 does. This PARTUUID is the one thing that must survive.
+# Resolve the ESP the way m1n1 does. This PARTUUID is the one thing that must survive.
 esp_uuid="$(tr -d '\0' </proc/device-tree/chosen/asahi,efi-system-partition)"
 esp_dev="$(blkid -t "PARTUUID=$esp_uuid" -o device 2>/dev/null | head -1 || true)"
 [[ -b $esp_dev ]] || die "no block device for PARTUUID=$esp_uuid — cannot identify the ESP"
 disk="/dev/$(lsblk -no PKNAME "$esp_dev")"
 [[ -b $disk ]] || die "could not find the whole disk backing $esp_dev"
+esp_partno="${esp_dev##*[!0-9]}"
 echo "==> ESP: $esp_dev on $disk (PARTUUID=$esp_uuid)"
 
-[[ -b $ABSORB ]] || die "$ABSORB is not a block device"
-[[ "/dev/$(lsblk -no PKNAME "$ABSORB")" == "$disk" ]] || die "$ABSORB is not on $disk"
-[[ $ABSORB != "$esp_dev" ]] || die "refusing to absorb the ESP into itself"
-
-# 2) Refuse anything still in use. An absorbed partition is destroyed outright.
-absorb_mnt="$(findmnt -no TARGET --source "$ABSORB" 2>/dev/null || true)"
-[[ -z $absorb_mnt ]] || die "$ABSORB is mounted at $absorb_mnt — unmount it first (umount $absorb_mnt)"
-root_src="$(findmnt -no SOURCE / 2>/dev/null || true)"
-sysroot_src="$(findmnt -no SOURCE /sysroot 2>/dev/null || true)"
-for in_use in "$root_src" "$sysroot_src"; do
-  [[ $in_use == "$ABSORB" ]] && die "$ABSORB backs the running system — refusing"
-done
-if grep -qs "^$ABSORB[[:space:]]" /proc/swaps; then die "$ABSORB is an active swap device — refusing"; fi
-absorb_partuuid="$(blkid -s PARTUUID -o value "$ABSORB" 2>/dev/null || true)"
-[[ $absorb_partuuid != "$esp_uuid" ]] || die "$ABSORB carries the ESP's PARTUUID — refusing"
-absorb_fsuuid="$(blkid -s UUID -o value "$ABSORB" 2>/dev/null || true)"
-
-# 3) Work out the new geometry from the on-disk table. gpt_absorb_size does the adjacency and
-#    overlap checks and refuses if anything else lives in the range being swallowed.
+# Read the table straight off the disk. After a BLKRRPART failure the kernel's view is stale and
+# blkid can report a partition's attributes as missing, so `sfdisk -d` is the only honest source
+# for "what does the GPT actually say" — an earlier version of this script trusted blkid here and
+# aborted with "PARTUUID changed -> none" on a table that was in fact perfect.
 table="$(mktemp)"; new_table="$(mktemp)"
 trap 'rm -f "$table" "$new_table"' EXIT
 sfdisk -d "$disk" >"$table"
-esp_start="$(gpt_field "$esp_dev" start "$table")"
-esp_size="$(gpt_field "$esp_dev" size "$table")"
-new_size="$(gpt_absorb_size "$esp_dev" "$ABSORB" "$table")"
-gpt_absorb_table "$esp_dev" "$ABSORB" "$new_size" "$table" >"$new_table"
 
-echo "==> $esp_dev: $((esp_size / 2048)) MiB -> $((new_size / 2048)) MiB (absorbing $ABSORB)"
-echo "==> new partition table:"
-sed 's/^/      /' "$new_table"
+# Apple NVMe reports 4096-byte sectors. Everything below is in sectors; only the human-readable
+# sizes need the real figure, and hardcoding 512 made a correct 1.5 GiB resize print as 190 MiB.
+sector_size="$(awk '/^sector-size:/ { print $2 }' "$table")"
+[[ -n $sector_size ]] || sector_size="$(blockdev --getss "$disk")"
+mib() { printf '%s\n' "$(( $1 * sector_size / 1024 / 1024 ))"; }
+
+table_partuuid() { gpt_field "$1" uuid "$table" 2>/dev/null || true; }
+on_disk_esp_uuid="$(table_partuuid "$esp_dev")"
+[[ ${on_disk_esp_uuid,,} == "${esp_uuid,,}" ]] || \
+  die "the GPT says $esp_dev is ${on_disk_esp_uuid:-unknown}, but the device tree points m1n1 at
+  $esp_uuid. Sort that out before touching anything."
+
+esp_volid="$(blkid -s UUID -o value "$esp_dev" 2>/dev/null || true)"
+# The restored boot entries say `boot=UUID=<fat serial>`, and mkfs.vfat invents a fresh one unless
+# given it. Without the old serial to hand back we would silently orphan every entry.
+[[ -n $esp_volid ]] || die "could not read the ESP's FAT volume id — refusing to continue"
+esp_label="$(blkid -s LABEL -o value "$esp_dev" 2>/dev/null || true)"
+
+# The ESP is normally mounted nowhere on this layout, so mount it on demand.
+esp_mnt="" esp_mnt_is_ours=0
+mount_esp_rw() {
+  esp_mnt="$(findmnt -no TARGET --source "$esp_dev" 2>/dev/null | head -1 || true)"
+  if [[ -n $esp_mnt ]]; then
+    mount -o remount,rw "$esp_mnt" 2>/dev/null || true
+  else
+    esp_mnt="$(mktemp -d)"
+    esp_mnt_is_ours=1
+    mount "$esp_dev" "$esp_mnt" || die "could not mount $esp_dev"
+  fi
+}
+unmount_esp() {
+  [[ -n $esp_mnt ]] || return 0
+  sync
+  umount "$esp_mnt" || die "could not unmount the ESP at $esp_mnt — close anything using it"
+  if (( esp_mnt_is_ours )); then
+    rmdir "$esp_mnt"
+  fi
+  esp_mnt=""
+  esp_mnt_is_ours=0
+}
+
+# 1) Does the table still need rewriting? Re-running after a partial run must not redo this.
+esp_sectors="$(gpt_field "$esp_dev" size "$table")"
+need_table_rewrite=0
+if gpt_field "$ABSORB" start "$table" >/dev/null 2>&1; then
+  [[ -b $ABSORB ]] || die "$ABSORB is in the partition table but not a block device"
+  [[ "/dev/$(lsblk -no PKNAME "$ABSORB")" == "$disk" ]] || die "$ABSORB is not on $disk"
+  [[ $ABSORB != "$esp_dev" ]] || die "refusing to absorb the ESP into itself"
+
+  absorb_mnt="$(findmnt -no TARGET --source "$ABSORB" 2>/dev/null || true)"
+  [[ -z $absorb_mnt ]] || die "$ABSORB is mounted at $absorb_mnt — unmount it first (umount $absorb_mnt)"
+  root_src="$(findmnt -no SOURCE / 2>/dev/null || true)"
+  sysroot_src="$(findmnt -no SOURCE /sysroot 2>/dev/null || true)"
+  for in_use in "$root_src" "$sysroot_src"; do
+    [[ $in_use == "$ABSORB" ]] && die "$ABSORB backs the running system — refusing"
+  done
+  if grep -qs "^$ABSORB[[:space:]]" /proc/swaps; then
+    die "$ABSORB is an active swap device — refusing"
+  fi
+  [[ "$(table_partuuid "$ABSORB")" != "$on_disk_esp_uuid" ]] || \
+    die "$ABSORB carries the ESP's PARTUUID — refusing"
+
+  new_sectors="$(gpt_absorb_size "$esp_dev" "$ABSORB" "$table")"
+  gpt_absorb_table "$esp_dev" "$ABSORB" "$new_sectors" "$table" >"$new_table"
+  need_table_rewrite=1
+  echo "==> $esp_dev: $(mib "$esp_sectors") MiB -> $(mib "$new_sectors") MiB (absorbing $ABSORB)"
+else
+  new_sectors="$esp_sectors"
+  echo "==> $ABSORB is already gone from the partition table; $esp_dev is $(mib "$esp_sectors") MiB"
+fi
 
 if (( DRY_RUN )); then
+  if (( need_table_rewrite )); then
+    echo "==> new partition table:"
+    sed 's/^/      /' "$new_table"
+    echo "==> $ABSORB currently holds:"
+    probe="$(mktemp -d)"
+    if mount -o ro "$ABSORB" "$probe" 2>/dev/null; then
+      ls -A "$probe" | sed 's/^/      /' || true
+      umount "$probe"
+    else
+      echo "      (could not mount read-only to list — $(blkid -o value -s TYPE "$ABSORB" 2>/dev/null || echo 'no filesystem'))"
+    fi
+    rmdir "$probe"
+  fi
+  echo "==> current boot entry kargs:"
+  mount_esp_rw
+  grep -rh 'boot=UUID=\|mount-extra' "$esp_mnt/loader/entries" 2>/dev/null | sed 's/^/      /' \
+    || echo "      (none)"
+  unmount_esp
   echo
   echo "==> --dry-run: nothing was written."
-  echo "    $ABSORB currently holds:"
-  probe="$(mktemp -d)"
-  if mount -o ro "$ABSORB" "$probe" 2>/dev/null; then
-    ls -A "$probe" | sed 's/^/      /' || true
-    umount "$probe"
-  else
-    echo "      (could not mount read-only to list — $(blkid -o value -s TYPE "$ABSORB" 2>/dev/null || echo 'no filesystem'))"
-  fi
-  rmdir "$probe"
   exit 0
 fi
 
-# 4) Back up the whole ESP. esp_backup refuses an empty source, so a mistyped/unmounted ESP stops
-#    here rather than one step before mkfs.
-esp_mnt="$(findmnt -no TARGET --source "$esp_dev" 2>/dev/null || true)"
-esp_mnt_is_ours=0
-if [[ -z $esp_mnt ]]; then
-  esp_mnt="$(mktemp -d)"
-  esp_mnt_is_ours=1
-  mount -o ro "$esp_dev" "$esp_mnt" || die "could not mount $esp_dev to back it up"
+# 0) Boot entries first — nothing below may leave a karg naming a partition that stops existing.
+echo "==> checking boot entries before anything is destroyed"
+mount_esp_rw
+if esp_repoint_entries "$esp_mnt" "$esp_volid"; then
+  echo "==> boot entries updated"
+else
+  echo "==> boot entries already reference only the ESP"
 fi
-esp_backup "$esp_mnt" "$BACKUP_DIR"
-[[ -e $BACKUP_DIR/m1n1/boot.bin ]] || \
-  die "$BACKUP_DIR/m1n1/boot.bin is missing — that backup is not the OS ESP, refusing to reformat"
-esp_label="$(blkid -s LABEL -o value "$esp_dev" 2>/dev/null || true)"
-esp_volid="$(blkid -s UUID -o value "$esp_dev" 2>/dev/null || true)"
-# The FAT serial is what the restored boot entries say in `boot=UUID=`. mkfs.vfat would invent a
-# fresh one, so without it to hand back we would silently orphan every entry we just restored.
-[[ -n $esp_volid ]] || die "could not read the ESP's FAT volume id — refusing to reformat"
-echo "==> backed up $esp_mnt -> $BACKUP_DIR (label='${esp_label:-none}', volume id=$esp_volid)"
-umount "$esp_mnt" || die "could not unmount the ESP at $esp_mnt — close anything using it and retry"
-if (( esp_mnt_is_ours )); then
-  rmdir "$esp_mnt"
-fi
-esp_mnt=""
+unmount_esp
 
-if (( ! ASSUME_YES )); then
-  echo
-  echo "    This DESTROYS $ABSORB and REFORMATS $esp_dev."
-  echo "    Copy $BACKUP_DIR off this machine before continuing — if the next step goes wrong,"
-  echo "    the machine will not boot and the backup is only reachable from macOS 1TR."
-  read -r -p "    Type GROW to continue: " reply
-  [[ $reply == "GROW" ]] || die "aborted"
-fi
+# 2) Rewrite the table, then make the kernel adopt it.
+if (( need_table_rewrite )); then
+  if (( ! ASSUME_YES )); then
+    echo
+    echo "    This DESTROYS $ABSORB and later REFORMATS $esp_dev."
+    echo "    The ESP is snapshotted to $BACKUP_DIR first — copy it off this machine before"
+    echo "    continuing; if the write goes wrong the backup is only reachable from macOS 1TR."
+    read -r -p "    Type GROW to continue: " reply
+    [[ $reply == "GROW" ]] || die "aborted"
+  fi
 
-# 5) Rewrite the table, then the filesystem. Re-applying the edited dump keeps every PARTUUID.
-echo "==> writing the new partition table"
-sfdisk --no-reread "$disk" <"$new_table"
-partx -u "$disk" || true
-udevadm settle 2>/dev/null || true
+  echo "==> writing the new partition table"
+  sfdisk --no-reread "$disk" <"$new_table"
 
-new_partuuid="$(blkid -s PARTUUID -o value "$esp_dev" 2>/dev/null || true)"
-[[ $new_partuuid == "$esp_uuid" ]] || \
-  die "FATAL: ESP PARTUUID changed ($esp_uuid -> ${new_partuuid:-none}). The Asahi device tree
-  points m1n1 at the old one. Restore it before rebooting: sfdisk --part-uuid $disk <N> $esp_uuid"
+  # Verify from the DISK, not from the kernel: BLKRRPART fails whenever any partition on this disk
+  # is mounted (it always is — the root filesystem lives here), so the kernel's view lags behind.
+  sfdisk -d "$disk" >"$table"
+  after_uuid="$(table_partuuid "$esp_dev")"
+  [[ ${after_uuid,,} == "${esp_uuid,,}" ]] || \
+    die "FATAL: the GPT now says $esp_dev is ${after_uuid:-none}, not $esp_uuid. The Asahi device
+  tree points m1n1 at the old one. Restore it before rebooting:
+    sfdisk --part-uuid $disk $esp_partno $esp_uuid"
+  echo "==> table written; ESP PARTUUID preserved ($esp_uuid)"
 
-echo "==> mkfs.vfat on the grown ESP"
-mkfs_args=(-F 32 -i "${esp_volid//-/}")
-if [[ -n $esp_label ]]; then
-  mkfs_args+=(-n "$esp_label")
-fi
-mkfs.vfat "${mkfs_args[@]}" "$esp_dev"
-
-esp_mnt="$(mktemp -d)"
-mount "$esp_dev" "$esp_mnt" || die "could not mount the grown ESP"
-cp -a "$BACKUP_DIR/." "$esp_mnt/"
-
-# 6) The absorbed partition no longer exists; any boot entry naming it would leave the next boot
-#    hanging on a mount that can never appear. Repoint boot= at the ESP and drop the mount-extra.
-if [[ -n $absorb_fsuuid ]]; then
-  for entry in "$esp_mnt"/loader/entries/*.conf; do
-    [[ -e $entry ]] || continue
-    grep -q "$absorb_fsuuid" "$entry" || continue
-    sed -i -e "s/boot=UUID=$absorb_fsuuid/boot=UUID=$esp_volid/g" \
-           -e "s/[[:space:]]*systemd\.mount-extra=UUID=$absorb_fsuuid:[^[:space:]]*//g" "$entry"
-    echo "==> repointed $(basename "$entry") away from the absorbed $ABSORB"
-  done
+  # Nudge the kernel: `partx -u` alone will not drop a deleted partition, and a stale one
+  # overlapping the grown ESP makes the resize fail.
+  absorb_partno="${ABSORB##*[!0-9]}"
+  partx -d --nr "$absorb_partno" "$disk" 2>/dev/null || true
+  partx -u "$disk" 2>/dev/null || true
+  udevadm settle 2>/dev/null || true
 fi
 
-# 7) Verify before declaring victory — an ESP that mounts but has lost m1n1 stage 2 is a machine
-#    that does not come back.
+# 3) Grow the filesystem to fill the partition.
+want_bytes=$(( new_sectors * sector_size ))
+kernel_bytes="$(blockdev --getsize64 "$esp_dev")"
+if (( kernel_bytes < want_bytes )); then
+  echo >&2
+  echo "The partition table is correct on disk, but the kernel still sees $esp_dev as" >&2
+  echo "$(( kernel_bytes / 1024 / 1024 )) MiB instead of $(mib "$new_sectors") MiB — it could not re-read the table while this" >&2
+  echo "disk carries the mounted root filesystem." >&2
+  echo >&2
+  echo "Rebooting is safe now: the boot entries no longer name the absorbed partition." >&2
+  echo "  sudo reboot" >&2
+  echo "  sudo $0 --absorb $ABSORB     # re-run; it picks up from here" >&2
+  exit 2
+fi
+
+mount_esp_rw
+fs_bytes="$(df -B1 --output=size "$esp_mnt" | tail -1 | tr -dc '0-9')"
+if (( fs_bytes * 100 / want_bytes >= 95 )); then
+  echo "==> the ESP filesystem already fills the partition ($(( fs_bytes / 1024 / 1024 )) MiB) — nothing to do"
+else
+  esp_backup "$esp_mnt" "$BACKUP_DIR"
+  [[ -e $BACKUP_DIR/m1n1/boot.bin ]] || \
+    die "$BACKUP_DIR/m1n1/boot.bin is missing — that backup is not the OS ESP, refusing to reformat"
+  echo "==> backed up $esp_mnt -> $BACKUP_DIR (label='${esp_label:-none}', volume id=$esp_volid)"
+  unmount_esp
+
+  if (( ! ASSUME_YES )); then
+    echo
+    echo "    About to REFORMAT $esp_dev ($(mib "$new_sectors") MiB) and restore $BACKUP_DIR onto it."
+    read -r -p "    Type GROW to continue: " reply
+    [[ $reply == "GROW" ]] || die "aborted — the ESP is untouched and the backup is at $BACKUP_DIR"
+  fi
+
+  echo "==> mkfs.vfat on the grown ESP"
+  mkfs_args=(-F 32 -i "${esp_volid//-/}")
+  if [[ -n $esp_label ]]; then
+    mkfs_args+=(-n "$esp_label")
+  fi
+  mkfs.vfat "${mkfs_args[@]}" "$esp_dev"
+
+  mount_esp_rw
+  cp -a "$BACKUP_DIR/." "$esp_mnt/"
+  esp_repoint_entries "$esp_mnt" "$esp_volid" || true
+fi
+
+# Verify. An ESP that mounts but has lost m1n1 stage 2 is a machine that does not come back.
 fail=0
 for want in m1n1/boot.bin EFI/BOOT/BOOTAA64.EFI; do
   [[ -e $esp_mnt/$want ]] || { echo "MISSING after restore: $want" >&2; fail=1; }
 done
-if grep -rqs "${absorb_fsuuid:-__none__}" "$esp_mnt/loader/entries" 2>/dev/null; then
-  echo "boot entries still reference the absorbed $ABSORB" >&2; fail=1
-fi
+while read -r stray; do
+  [[ -n $stray ]] || continue
+  echo "boot entry still references a non-ESP partition: $stray" >&2
+  fail=1
+done < <(grep -rhoE 'systemd\.mount-extra=UUID=[^ ]+' "$esp_mnt/loader/entries" 2>/dev/null || true)
+
 usable="$(esp_usable_bytes "$esp_mnt")"
 payload="$(esp_payload_bytes)"
-required="$(esp_required_bytes "$payload")"
-esp_capacity_report "$usable" "$required" "$payload" || \
+esp_capacity_report "$usable" "$(esp_required_bytes "$payload")" "$payload" || \
   echo "    still short — the ESP grew but not enough for two deployments." >&2
-sync
-umount "$esp_mnt"; rmdir "$esp_mnt"
+unmount_esp
 (( fail == 0 )) || die "verification FAILED — restore from $BACKUP_DIR before rebooting"
 
 echo
-echo "==> DONE. ESP is now $((new_size / 2048)) MiB, PARTUUID unchanged ($esp_uuid)."
+echo "==> DONE. $esp_dev is $(mib "$new_sectors") MiB, PARTUUID unchanged ($esp_uuid)."
 echo "    Backup kept at $BACKUP_DIR. Reboot, then run: sudo bootc upgrade"
