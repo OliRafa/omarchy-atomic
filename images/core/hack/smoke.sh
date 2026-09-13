@@ -57,6 +57,19 @@ case $initramfs_listing in
     no "initramfs has no bootc composefs root setup — a composefs install will boot the host's /usr" ;;
 esac
 
+# grub2-common's boot-success units are meaningless under systemd-boot: they write a grubenv that
+# does not exist, so grub-boot-success.service fails on every login and the desktop reports a failed
+# unit. Masked in Containerfile step 3b2. Only reproducible on a booted system, so assert the mask.
+for u in /etc/systemd/user/grub-boot-success.service \
+         /etc/systemd/user/grub-boot-success.timer \
+         /etc/systemd/system/grub-boot-indeterminate.service; do
+  if [ "$(readlink -f "$u" 2>/dev/null)" = /dev/null ]; then
+    ok "masked $(basename "$u")"
+  else
+    no "$(basename "$u") not masked — it fails under systemd-boot"
+  fi
+done
+
 echo "== core desktop packages =="
 for p in hyprland quickshell uwsm sddm NetworkManager pipewire wireplumber fcitx5 qt6-qtimageformats glycin-loaders; do
   rpm -q "$p" >/dev/null 2>&1 && ok "$p" || no "$p missing"

@@ -55,6 +55,23 @@ RUN dnf -y install systemd-boot-unsigned \
     done \
  && dnf clean all
 
+# 3b2) Mask grub2's boot-success units. They ship with grub2-common — which survives step 3b
+#      because asahi-platform-metapackage holds it — and record a successful boot by writing to a
+#      grubenv via grub2-editenv. Under systemd-boot there is no grubenv, so they fail: on hardware
+#      the desktop pops "Failed unit detected: grub-boot-success.service" on every login and the
+#      boot ends with a unit in the failed state. grub-boot-success is a USER unit driven by a timer
+#      (hence the failure appearing at login, not at boot); grub-boot-indeterminate is a system one.
+#      `systemctl mask` works on units that do not exist, so this is safe if grub2-common ever goes.
+RUN set -eux; \
+    systemctl --global mask grub-boot-success.timer grub-boot-success.service; \
+    systemctl mask grub-boot-indeterminate.service; \
+    for u in /etc/systemd/user/grub-boot-success.timer \
+             /etc/systemd/user/grub-boot-success.service \
+             /etc/systemd/system/grub-boot-indeterminate.service; do \
+      [ "$(readlink -f "$u")" = /dev/null ] || { echo "[3b2] $u is not masked"; exit 1; }; \
+      echo "[3b2] masked $u"; \
+    done
+
 # 3c) composefs boot: rebuild the initramfs with bootc's dracut module.
 #     The base image's initramfs is built for the OSTREE backend. It ships ostree-prepare-root.service,
 #     gated on ConditionKernelCommandLine=ostree, and nothing that reads `composefs=`. Install with
