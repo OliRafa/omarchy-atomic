@@ -15,5 +15,19 @@ fi
 # Optional user overrides kept for compatibility with older installs.
 [ -f "$HOME/.config/uwsm/default" ] && . "$HOME/.config/uwsm/default"
 
+# Homebrew on the SESSION path. /etc/profile.d/brew.sh (from ublue's brew image) only extends PATH
+# for INTERACTIVE shells, and uwsm does not source profile.d at all — see the note at the top of
+# this file. But omarchy-launch-tui execs its target directly:
+#     exec setsid uwsm-app -- xdg-terminal-exec --app-id=$APP_ID -e "$1" "${@:2}"
+# with no shell in between. Without this, every brew-provided TUI bound to a key is missing from a
+# graphical session while working perfectly in a terminal — EDITOR resolves to nvim, and nvim comes
+# from the Brewfile.
+#
+# APPENDED, never prepended, so brew cannot shadow system binaries; ublue hit exactly that with
+# dbus, which is why their own profile.d drop-in strips brew's `PATH=` line and appends instead.
+if [ -d /home/linuxbrew/.linuxbrew/bin ]; then
+  export PATH="${PATH}:/home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin"
+fi
+
 # Activate mise if present on the system
 omarchy-cmd-present mise && eval "$(mise activate bash --shims)"
