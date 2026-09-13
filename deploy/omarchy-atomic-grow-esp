@@ -170,8 +170,14 @@ if (( DRY_RUN )); then
   fi
 else
   reconcile_kernel_partitions "$disk"
+  # No node means phase 0 cannot run, so a reboot from here may land in emergency mode on a stale
+  # mount-extra karg. Say so rather than cheerfully recommending the reboot.
   [[ -b $esp_dev ]] || die "$esp_dev still has no device node — the kernel would not adopt the
-  partition table. Reboot and re-run; nothing destructive has happened."
+  partition table, so the boot entries cannot be checked. Nothing destructive has happened, but
+  do NOT assume a reboot is safe: if an entry still carries systemd.mount-extra for a partition
+  that no longer exists, local-fs.target fails and you land in emergency mode. From there:
+    mount $esp_dev /mnt && \$EDITOR /mnt/loader/entries/*.conf
+  removing the systemd.mount-extra= karg and pointing boot=UUID= at the ESP."
 fi
 
 if [[ -b $esp_dev ]]; then
