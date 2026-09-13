@@ -18,8 +18,17 @@ BREW="$PREFIX/bin/brew"
 [ -f "$BREWFILE" ] || { echo "brew-setup: no Brewfile at $BREWFILE"; exit 0; }
 [ -f "$STAMP" ] && exit 0
 
-# Primary user = lowest uid in [1000,65000) with a real login shell.
-read -r uid user < <(getent passwd | awk -F: '$3>=1000 && $3<65000 && $7 !~ /nologin|false/ {print $3, $2}' | sort -n | head -1)
+# Primary user = lowest uid in the login.defs range with a real login shell. The bounds come from
+# login.defs — what useradd allocates from — not a hand-rolled 1000..65000: systemd's DynamicUser=
+# accounts sit at 61184-65519 and nss-systemd surfaces them in `getent passwd`. The nologin filter
+# happens to exclude today's (speakersafetyd on Asahi has /usr/sbin/nologin), but the range should
+# not depend on that. omarchy-firstboot-user had the identical bug and it cost a dead-end greeter.
+uid_min=$(awk '$1 == "UID_MIN" { print $2 }' /etc/login.defs 2>/dev/null)
+uid_max=$(awk '$1 == "UID_MAX" { print $2 }' /etc/login.defs 2>/dev/null)
+uid_min=${uid_min:-1000}
+uid_max=${uid_max:-60000}
+read -r uid user < <(getent passwd | awk -F: -v lo="$uid_min" -v hi="$uid_max" \
+  '$3>=lo && $3<=hi && $7 !~ /nologin|false/ {print $3, $2}' | sort -n | head -1)
 if [ -z "${user:-}" ]; then
   echo "brew-setup: no primary user yet; will retry next boot"
   exit 0   # no stamp -> retry
