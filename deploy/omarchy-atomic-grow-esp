@@ -1,0 +1,215 @@
+#!/usr/bin/env bash
+# Grow the Asahi ESP by absorbing the partition that follows it, so bootc's composefs backend has
+# room for two deployments' kernels and initramfses.
+#
+# WHY THIS EXISTS
+#   bootc's composefs backend writes vmlinuz + initrd into <ESP>/EFI/Linux/bootc_composefs-<id>/,
+#   and it finds the ESP by GPT TYPE GUID — a separate /boot is never consulted. Supporting a
+#   dedicated boot partition is an open upstream TODO ("bootc does not yet detect or use XBOOTLDR
+#   in the composefs install path", crates/lib/src/bootc_composefs/boot.rs), confirmed on hardware:
+#   a correctly typed, VFAT, mounted-at-/boot XBOOTLDR partition with 1 GiB free changed nothing —
+#   `bootc upgrade` still wrote to the 500 MiB ESP and died with ENOSPC.
+#
+#   The Asahi installer sizes the ESP for m1n1 + U-Boot + GRUB (500 MiB, ~126 MiB of it already
+#   preboot) and puts kernels on a separate 1 GiB ext4 /boot, because that is what the stock
+#   ostree + GRUB layout wants. An omarchy-atomic machine does not use that /boot at all — so it
+#   is exactly the space the ESP is missing. This tool moves it across.
+#
+# WHAT IT DOES
+#   1. Resolves the ESP the way m1n1 does (asahi,efi-system-partition PARTUUID).
+#   2. Refuses unless the partition to absorb really follows the ESP, is unmounted, and is not
+#      backing the running system.
+#   3. Backs up the WHOLE ESP to the root filesystem (and refuses if that backup is empty).
+#   4. Rewrites the GPT from an `sfdisk -d` dump, preserving every PARTUUID verbatim — the Asahi
+#      device tree finds the ESP by the ESP's PARTUUID, so changing it bricks the boot chain.
+#   5. mkfs.vfat over the grown ESP, reusing its volume ID and label, then restores the backup.
+#   6. Repoints any boot entry that referenced the absorbed partition, and verifies the result.
+#
+# THIS REWRITES YOUR PARTITION TABLE AND REFORMATS YOUR ESP. Read --dry-run output first, and
+# copy the backup off the machine before running for real.
+#
+# USAGE (as root, on the Asahi machine):
+#   omarchy-atomic-grow-esp --absorb /dev/nvme0n1p5 --dry-run
+#   omarchy-atomic-grow-esp --absorb /dev/nvme0n1p5
+set -euo pipefail
+
+_here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/esp-backup.sh
+. "$_here/lib/esp-backup.sh"
+# shellcheck source=lib/gpt-absorb.sh
+. "$_here/lib/gpt-absorb.sh"
+# shellcheck source=lib/esp-capacity.sh
+. "$_here/lib/esp-capacity.sh"
+
+ABSORB="" DRY_RUN=0 ASSUME_YES=0 BACKUP_DIR="/var/tmp/asahi-esp-backup"
+usage() {
+  cat >&2 <<'EOF'
+usage: omarchy-atomic-grow-esp --absorb <partition> [--dry-run] [--yes] [--backup-dir DIR]
+
+  --absorb DEV     partition to destroy and fold into the ESP (must directly follow it)
+  --dry-run        print the plan and the new partition table; touch nothing
+  --yes            skip the interactive confirmation
+  --backup-dir DIR where to snapshot the ESP (default: /var/tmp/asahi-esp-backup)
+EOF
+  exit 1
+}
+while (( $# )); do
+  case "$1" in
+    --absorb) ABSORB="${2:?--absorb needs a partition}"; shift 2 ;;
+    --dry-run) DRY_RUN=1; shift ;;
+    --yes) ASSUME_YES=1; shift ;;
+    --backup-dir) BACKUP_DIR="${2:?--backup-dir needs a path}"; shift 2 ;;
+    -h|--help) usage ;;
+    *) echo "unknown argument: $1" >&2; usage ;;
+  esac
+done
+[[ -n $ABSORB ]] || usage
+
+die() { echo "$@" >&2; exit 1; }
+
+[[ $(id -u) == 0 ]] || die "run as root"
+[[ $(uname -m) == "aarch64" ]] || die "aarch64 (Apple Silicon) only"
+[[ -e /proc/device-tree/chosen/asahi,efi-system-partition ]] || \
+  die "no asahi,efi-system-partition — is this a Fedora Asahi (Apple Silicon) system?"
+for c in sfdisk blkid findmnt mkfs.vfat partx; do
+  command -v "$c" >/dev/null || die "$c is required but not installed"
+done
+
+# 1) Resolve the ESP the way m1n1 does. This PARTUUID is the one thing that must survive.
+esp_uuid="$(tr -d '\0' </proc/device-tree/chosen/asahi,efi-system-partition)"
+esp_dev="$(blkid -t "PARTUUID=$esp_uuid" -o device 2>/dev/null | head -1 || true)"
+[[ -b $esp_dev ]] || die "no block device for PARTUUID=$esp_uuid — cannot identify the ESP"
+disk="/dev/$(lsblk -no PKNAME "$esp_dev")"
+[[ -b $disk ]] || die "could not find the whole disk backing $esp_dev"
+echo "==> ESP: $esp_dev on $disk (PARTUUID=$esp_uuid)"
+
+[[ -b $ABSORB ]] || die "$ABSORB is not a block device"
+[[ "/dev/$(lsblk -no PKNAME "$ABSORB")" == "$disk" ]] || die "$ABSORB is not on $disk"
+[[ $ABSORB != "$esp_dev" ]] || die "refusing to absorb the ESP into itself"
+
+# 2) Refuse anything still in use. An absorbed partition is destroyed outright.
+absorb_mnt="$(findmnt -no TARGET --source "$ABSORB" 2>/dev/null || true)"
+[[ -z $absorb_mnt ]] || die "$ABSORB is mounted at $absorb_mnt — unmount it first (umount $absorb_mnt)"
+root_src="$(findmnt -no SOURCE / 2>/dev/null || true)"
+sysroot_src="$(findmnt -no SOURCE /sysroot 2>/dev/null || true)"
+for in_use in "$root_src" "$sysroot_src"; do
+  [[ $in_use == "$ABSORB" ]] && die "$ABSORB backs the running system — refusing"
+done
+if grep -qs "^$ABSORB[[:space:]]" /proc/swaps; then die "$ABSORB is an active swap device — refusing"; fi
+absorb_partuuid="$(blkid -s PARTUUID -o value "$ABSORB" 2>/dev/null || true)"
+[[ $absorb_partuuid != "$esp_uuid" ]] || die "$ABSORB carries the ESP's PARTUUID — refusing"
+absorb_fsuuid="$(blkid -s UUID -o value "$ABSORB" 2>/dev/null || true)"
+
+# 3) Work out the new geometry from the on-disk table. gpt_absorb_size does the adjacency and
+#    overlap checks and refuses if anything else lives in the range being swallowed.
+table="$(mktemp)"; new_table="$(mktemp)"
+trap 'rm -f "$table" "$new_table"' EXIT
+sfdisk -d "$disk" >"$table"
+esp_start="$(gpt_field "$esp_dev" start "$table")"
+esp_size="$(gpt_field "$esp_dev" size "$table")"
+new_size="$(gpt_absorb_size "$esp_dev" "$ABSORB" "$table")"
+gpt_absorb_table "$esp_dev" "$ABSORB" "$new_size" "$table" >"$new_table"
+
+echo "==> $esp_dev: $((esp_size / 2048)) MiB -> $((new_size / 2048)) MiB (absorbing $ABSORB)"
+echo "==> new partition table:"
+sed 's/^/      /' "$new_table"
+
+if (( DRY_RUN )); then
+  echo
+  echo "==> --dry-run: nothing was written."
+  echo "    $ABSORB currently holds:"
+  probe="$(mktemp -d)"
+  if mount -o ro "$ABSORB" "$probe" 2>/dev/null; then
+    ls -A "$probe" | sed 's/^/      /' || true
+    umount "$probe"
+  else
+    echo "      (could not mount read-only to list — $(blkid -o value -s TYPE "$ABSORB" 2>/dev/null || echo 'no filesystem'))"
+  fi
+  rmdir "$probe"
+  exit 0
+fi
+
+# 4) Back up the whole ESP. esp_backup refuses an empty source, so a mistyped/unmounted ESP stops
+#    here rather than one step before mkfs.
+esp_mnt="$(findmnt -no TARGET --source "$esp_dev" 2>/dev/null || true)"
+esp_mnt_is_ours=0
+if [[ -z $esp_mnt ]]; then
+  esp_mnt="$(mktemp -d)"
+  esp_mnt_is_ours=1
+  mount -o ro "$esp_dev" "$esp_mnt" || die "could not mount $esp_dev to back it up"
+fi
+esp_backup "$esp_mnt" "$BACKUP_DIR"
+[[ -e $BACKUP_DIR/m1n1/boot.bin ]] || \
+  die "$BACKUP_DIR/m1n1/boot.bin is missing — that backup is not the OS ESP, refusing to reformat"
+esp_label="$(blkid -s LABEL -o value "$esp_dev" 2>/dev/null || true)"
+esp_volid="$(blkid -s UUID -o value "$esp_dev" 2>/dev/null || true)"
+echo "==> backed up $esp_mnt -> $BACKUP_DIR (label='${esp_label:-none}', volume id=${esp_volid:-none})"
+umount "$esp_mnt" || die "could not unmount the ESP at $esp_mnt — close anything using it and retry"
+if (( esp_mnt_is_ours )); then
+  rmdir "$esp_mnt"
+fi
+esp_mnt=""
+
+if (( ! ASSUME_YES )); then
+  echo
+  echo "    This DESTROYS $ABSORB and REFORMATS $esp_dev."
+  echo "    Copy $BACKUP_DIR off this machine before continuing — if the next step goes wrong,"
+  echo "    the machine will not boot and the backup is only reachable from macOS 1TR."
+  read -r -p "    Type GROW to continue: " reply
+  [[ $reply == "GROW" ]] || die "aborted"
+fi
+
+# 5) Rewrite the table, then the filesystem. Re-applying the edited dump keeps every PARTUUID.
+echo "==> writing the new partition table"
+sfdisk --no-reread "$disk" <"$new_table"
+partx -u "$disk" || true
+udevadm settle 2>/dev/null || true
+
+new_partuuid="$(blkid -s PARTUUID -o value "$esp_dev" 2>/dev/null || true)"
+[[ $new_partuuid == "$esp_uuid" ]] || \
+  die "FATAL: ESP PARTUUID changed ($esp_uuid -> ${new_partuuid:-none}). The Asahi device tree
+  points m1n1 at the old one. Restore it before rebooting: sfdisk --part-uuid $disk <N> $esp_uuid"
+
+echo "==> mkfs.vfat on the grown ESP"
+mkfs_args=(-F 32)
+[[ -n $esp_volid ]] && mkfs_args+=(-i "${esp_volid//-/}")
+[[ -n $esp_label ]] && mkfs_args+=(-n "$esp_label")
+mkfs.vfat "${mkfs_args[@]}" "$esp_dev"
+
+esp_mnt="$(mktemp -d)"
+mount "$esp_dev" "$esp_mnt" || die "could not mount the grown ESP"
+cp -a "$BACKUP_DIR/." "$esp_mnt/"
+
+# 6) The absorbed partition no longer exists; any boot entry naming it would leave the next boot
+#    hanging on a mount that can never appear. Repoint boot= at the ESP and drop the mount-extra.
+if [[ -n $absorb_fsuuid ]]; then
+  for entry in "$esp_mnt"/loader/entries/*.conf; do
+    [[ -e $entry ]] || continue
+    grep -q "$absorb_fsuuid" "$entry" || continue
+    sed -i -e "s/boot=UUID=$absorb_fsuuid/boot=UUID=$esp_volid/g" \
+           -e "s/[[:space:]]*systemd\.mount-extra=UUID=$absorb_fsuuid:[^[:space:]]*//g" "$entry"
+    echo "==> repointed $(basename "$entry") away from the absorbed $ABSORB"
+  done
+fi
+
+# 7) Verify before declaring victory — an ESP that mounts but has lost m1n1 stage 2 is a machine
+#    that does not come back.
+fail=0
+for want in m1n1/boot.bin EFI/BOOT/BOOTAA64.EFI; do
+  [[ -e $esp_mnt/$want ]] || { echo "MISSING after restore: $want" >&2; fail=1; }
+done
+if grep -rqs "${absorb_fsuuid:-__none__}" "$esp_mnt/loader/entries" 2>/dev/null; then
+  echo "boot entries still reference the absorbed $ABSORB" >&2; fail=1
+fi
+usable="$(esp_usable_bytes "$esp_mnt")"
+payload="$(esp_payload_bytes)"
+required="$(esp_required_bytes "$payload")"
+esp_capacity_report "$usable" "$required" "$payload" || \
+  echo "    still short — the ESP grew but not enough for two deployments." >&2
+sync
+umount "$esp_mnt"; rmdir "$esp_mnt"
+(( fail == 0 )) || die "verification FAILED — restore from $BACKUP_DIR before rebooting"
+
+echo
+echo "==> DONE. ESP is now $((new_size / 2048)) MiB, PARTUUID unchanged ($esp_uuid)."
+echo "    Backup kept at $BACKUP_DIR. Reboot, then run: sudo bootc upgrade"
