@@ -6,7 +6,7 @@
 # and shell config out of the box.
 #
 # User applications are delivered on the writable layer instead:
-#   - GUI apps      -> install/flatpaks   (Flathub)
+#   - GUI apps      -> /usr/share/flatpak/preinstall.d/omarchy-atomic.preinstall (Flathub)
 #   - CLI / dev     -> Brewfile           (Homebrew)
 # See docs/immutability/core-vs-apps.md for the rationale and the callsite
 # repoints required before removing browser/imv/mpv/nautilus from the base.

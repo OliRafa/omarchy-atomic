@@ -1,0 +1,62 @@
+# omarchy-atomic — GUI user applications delivered via Flatpak (Flathub).
+#
+# This is a Fedora/flatpak-native "preinstall" manifest (see flatpak-preinstall(1)): the OS runs
+# `flatpak preinstall -y` at startup and syncs the system-wide installation to the groups below.
+# The upstream flatpak CLI owns the install logic, the idempotency, AND the opt-out: an app a user
+# uninstalls is remembered and NOT reinstalled on the next run. We only ship this list + the thin
+# omarchy-flatpak-preinstall.service that runs the CLI (Fedora packages the CLI but no boot unit).
+#
+# All groups install from Flathub. We mask flatpak-add-fedora-repos.service (Containerfile step 5c)
+# so Flathub is the only enabled remote and resolution is unambiguous — the same reason Bluefin
+# removes the Fedora remotes. Branch=stable because that is Flathub's branch (the flatpak default is
+# "master", which does not exist there).
+
+# --- Browser (was: chromium in core). User's default is Brave; also hosts web-apps. ---
+# bin/omarchy-launch-webapp is flatpak-aware; mimeapps.list maps http(s) -> com.brave.Browser.desktop.
+[Flatpak Preinstall com.brave.Browser]
+Branch=stable
+IsRuntime=false
+
+# --- Lightweight default apps (moved out of core) ---
+[Flatpak Preinstall org.gnome.Evince]
+Branch=stable
+IsRuntime=false
+
+[Flatpak Preinstall org.gnome.Calculator]
+Branch=stable
+IsRuntime=false
+
+# image viewer, replaces imv. Repointed: mimeapps.list + hypr/apps/system.lua
+[Flatpak Preinstall org.gnome.Loupe]
+Branch=stable
+IsRuntime=false
+
+# --- Heavier creative / office / notes apps ---
+[Flatpak Preinstall com.obsproject.Studio]
+Branch=stable
+IsRuntime=false
+
+[Flatpak Preinstall org.kde.kdenlive]
+Branch=stable
+IsRuntime=false
+
+[Flatpak Preinstall com.github.PintaProject.Pinta]
+Branch=stable
+IsRuntime=false
+
+[Flatpak Preinstall com.github.xournalpp.xournalpp]
+Branch=stable
+IsRuntime=false
+
+[Flatpak Preinstall org.libreoffice.LibreOffice]
+Branch=stable
+IsRuntime=false
+
+[Flatpak Preinstall md.obsidian.Obsidian]
+Branch=stable
+IsRuntime=false
+
+# Kept NATIVE in core instead of Flatpak (see install/omarchy-base.packages.core):
+#   nautilus            - not published on Flathub (404) + launched as a native binary
+#   mpv / mpv-mpris     - media engine for the v4l2 webcam overlay + shell MPRIS panel
+#   gnome-disk-utility  - fronts the system udisks2 daemon; in neither Flatpak nor brew

@@ -1,0 +1,15 @@
+[Unit]
+Description=Update system Flatpaks daily
+Documentation=man:flatpak-update(1)
+
+[Timer]
+# Daily, catching up after downtime (Persistent), jittered so a fleet does not hit Flathub at once.
+# omarchy-flatpak-preinstall.service handles the FIRST install; this only keeps the set current after,
+# the way ublue's flatpak-system-update.timer does. flatpak's system-helper serialises any overlap
+# with a still-running first-boot preinstall, so the two never corrupt each other.
+OnCalendar=daily
+Persistent=true
+RandomizedDelaySec=10min
+
+[Install]
+WantedBy=timers.target

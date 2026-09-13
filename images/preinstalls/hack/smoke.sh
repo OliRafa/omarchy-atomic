@@ -23,14 +23,19 @@ done
 # are core dependencies. Still asserted here so a broken inheritance shows up in this tier too.
 echo "== app lists + provisioning inherited from core =="
 [ -s /usr/share/omarchy-atomic/Brewfile ] && ok "Brewfile shipped" || no "Brewfile missing"
-[ -s /usr/share/omarchy-atomic/flatpaks ] && ok "flatpaks list shipped" || no "flatpaks list missing"
+[ -s /usr/share/flatpak/preinstall.d/omarchy-atomic.preinstall ] \
+  && ok "flatpak preinstall manifest shipped" || no "flatpak preinstall manifest missing"
 
 command -v flatpak >/dev/null 2>&1 && ok "flatpak present (from core)" || no "flatpak missing"
-for svc in omarchy-flatpak-setup omarchy-brew-setup; do
-  [ -x "/usr/libexec/$svc" ] && ok "/usr/libexec/$svc" || no "/usr/libexec/$svc missing"
+[ -s /etc/flatpak/remotes.d/flathub.flatpakrepo ] \
+  && ok "flathub.flatpakrepo baked in (from core)" || no "flathub.flatpakrepo missing"
+[ -x /usr/libexec/omarchy-brew-setup ] && ok "/usr/libexec/omarchy-brew-setup" || no "/usr/libexec/omarchy-brew-setup missing"
+for svc in omarchy-flatpak-preinstall omarchy-brew-setup; do
   [ -L "/etc/systemd/system/multi-user.target.wants/$svc.service" ] \
     && ok "$svc.service enabled" || no "$svc.service not enabled"
 done
+[ -L /etc/systemd/system/timers.target.wants/omarchy-flatpak-update.timer ] \
+  && ok "flatpak update timer enabled (from core)" || no "flatpak update timer not enabled"
 # The prebuilt Homebrew tree and its self-update timers come from core too.
 [ -s /usr/share/homebrew.tar.zst ] && ok "homebrew.tar.zst shipped (from core)" \
   || no "homebrew.tar.zst missing"

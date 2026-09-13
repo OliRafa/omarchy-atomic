@@ -12,7 +12,7 @@ invoked only **on demand** — moves to the writable layer:
 | Layer | Delivery | File |
 |-------|----------|------|
 | Core OS | dnf / COPR / first-party source builds (base image) | `install/omarchy-base.packages.core` |
-| GUI user apps | Flatpak (Flathub) | `install/flatpaks` |
+| GUI user apps | Flatpak (Flathub), via `flatpak preinstall` | `usr/share/flatpak/preinstall.d/omarchy-atomic.preinstall` |
 | CLI / dev tools | Homebrew (Linuxbrew) | `Brewfile` |
 
 Distinction that decides the CLI cases: **wired into always-loaded shell config**

@@ -176,7 +176,7 @@ RUN set -eux; \
 #     extras, and they used to live in the preinstalls image — so a core-only install shipped
 #     commands and mime handlers pointing at software that was never going to arrive:
 #       - mimeapps.list maps http(s) to com.brave.Browser and images to org.gnome.Loupe, and
-#         hypr/apps/system.lua launches Loupe; all three come from install/flatpaks.
+#         hypr/apps/system.lua launches Loupe; all three come from the Flatpak preinstall manifest.
 #       - omarchy-default-editor runs nvim, and tmux/gh resolve the same way — all from the Brewfile,
 #         which says so itself ("PREREQUISITE (core concern)").
 #     hack/smoke.sh asserts those mimeapps repoints, so core was already testing for apps it did not
@@ -190,14 +190,38 @@ RUN set -eux; \
 #     extracts /usr/share/homebrew.tar.zst into /home/linuxbrew, and brew-update.timer /
 #     brew-upgrade.timer keep it current afterwards on their own schedule (6h / 8h), independent of
 #     image updates. omarchy-brew-setup.service is now only "own it correctly and apply our
-#     Brewfile", ordered after theirs. It stays idempotent and retries until it succeeds, as does
-#     flatpak-setup, which stamps done only once every app is present.
+#     Brewfile", ordered after theirs. It stays idempotent and retries until it succeeds.
+#
+#     The Flatpak app set uses Fedora/flatpak's UPSTREAM `flatpak preinstall`: the manifest lives at
+#     /usr/share/flatpak/preinstall.d/omarchy-atomic.preinstall and the CLI owns the install logic,
+#     idempotency and user opt-out (a removed app is not reinstalled). This is what Bluefin/Aurora
+#     do. Fedora packages the CLI but no boot unit, so omarchy-flatpak-preinstall.service is a thin
+#     wrapper that runs it — the only Flatpak-provisioning code we own.
+#       - The Flathub remote is baked in as a LOCAL file at /etc/flatpak/remotes.d/flathub.flatpakrepo
+#         (ublue-os/main does the same), so `remote-add` reads a file and needs no DNS — which matters
+#         because we mask NetworkManager-wait-online (install/config/enable-services.sh), leaving
+#         network-online.target reached before the network is up. Fail the build if it can't be
+#         fetched rather than ship an image whose remote step is back on the network.
+#       - Mask flatpak-add-fedora-repos.service so Flathub is the only enabled remote and preinstall
+#         resolves the app set unambiguously (Bluefin removes the Fedora remotes for the same reason).
+#       - Only the app pulls need connectivity, and the wrapper's Restart=on-failure retries those
+#         out of the boot path until the network is up.
+#       - omarchy-flatpak-update.timer keeps the set current afterwards (daily `flatpak update
+#         --system`, metered-guarded), the way ublue's flatpak-system-update.timer does — nothing
+#         else updates the system Flatpaks (the on-demand omarchy-update-manual-pkgs is --user only).
 COPY --from=brew /system_files/ /
-COPY Brewfile install/flatpaks /usr/share/omarchy-atomic/
+COPY Brewfile /usr/share/omarchy-atomic/
 RUN set -eux; \
     [ -s /usr/share/homebrew.tar.zst ] || { echo "[5c] brew image shipped no homebrew.tar.zst"; exit 1; }; \
-    chmod +x /usr/libexec/omarchy-brew-setup /usr/libexec/omarchy-flatpak-setup; \
-    systemctl enable omarchy-flatpak-setup.service omarchy-brew-setup.service; \
+    [ -s /usr/share/flatpak/preinstall.d/omarchy-atomic.preinstall ] || { echo "[5c] flatpak preinstall manifest missing"; exit 1; }; \
+    command -v flatpak >/dev/null || { echo "[5c] flatpak (for the preinstall CLI) not installed"; exit 1; }; \
+    mkdir -p /etc/flatpak/remotes.d; \
+    curl --retry 3 --retry-delay 2 -fL -o /etc/flatpak/remotes.d/flathub.flatpakrepo \
+      https://dl.flathub.org/repo/flathub.flatpakrepo; \
+    [ -s /etc/flatpak/remotes.d/flathub.flatpakrepo ] || { echo "[5c] failed to bake flathub.flatpakrepo"; exit 1; }; \
+    systemctl mask flatpak-add-fedora-repos.service; \
+    chmod +x /usr/libexec/omarchy-brew-setup; \
+    systemctl enable omarchy-flatpak-preinstall.service omarchy-flatpak-update.timer omarchy-brew-setup.service; \
     systemctl enable brew-setup.service brew-update.timer brew-upgrade.timer
 
 # 6) Core first-party tools (tensaku, voxtype, tobi-try, hyprland-preview-share-picker).

@@ -104,13 +104,30 @@ done
 # (brew needs a writable user-owned prefix, flatpaks live in /var), so assert the first-boot wiring.
 echo "== brew + flatpak first-boot provisioning (core dependencies) =="
 [ -s /usr/share/omarchy-atomic/Brewfile ] && ok "Brewfile shipped" || no "Brewfile missing"
-[ -s /usr/share/omarchy-atomic/flatpaks ] && ok "flatpaks list shipped" || no "flatpaks list missing"
 command -v flatpak >/dev/null 2>&1 && ok "flatpak present" || no "flatpak missing"
-for svc in omarchy-flatpak-setup omarchy-brew-setup; do
-  [ -x "/usr/libexec/$svc" ] && ok "/usr/libexec/$svc" || no "/usr/libexec/$svc missing"
+# The app set is Fedora/flatpak's upstream `flatpak preinstall`: a manifest + the CLI, run by our
+# thin wrapper unit. Assert the manifest, the CLI, the baked remote, and the retry wiring.
+flatpak preinstall --help >/dev/null 2>&1 && ok "flatpak preinstall CLI present" || no "flatpak preinstall CLI missing"
+[ -s /usr/share/flatpak/preinstall.d/omarchy-atomic.preinstall ] \
+  && ok "flatpak preinstall manifest shipped" || no "flatpak preinstall manifest missing"
+# Flathub is baked in as a LOCAL file so remote-add needs no network (we mask NetworkManager-wait-online).
+[ -s /etc/flatpak/remotes.d/flathub.flatpakrepo ] \
+  && ok "flathub.flatpakrepo baked in" || no "flathub.flatpakrepo missing (remote-add would need the network)"
+# Fedora's flatpak remote is masked so Flathub is the only source and preinstall resolves unambiguously.
+[ "$(readlink -f /etc/systemd/system/flatpak-add-fedora-repos.service 2>/dev/null)" = /dev/null ] \
+  && ok "flatpak-add-fedora-repos.service masked" || no "Fedora flatpak remote not masked (ambiguous resolution)"
+[ -x /usr/libexec/omarchy-brew-setup ] && ok "/usr/libexec/omarchy-brew-setup" || no "/usr/libexec/omarchy-brew-setup missing"
+for svc in omarchy-flatpak-preinstall omarchy-brew-setup; do
   [ -L "/etc/systemd/system/multi-user.target.wants/$svc.service" ] \
     && ok "$svc.service enabled" || no "$svc.service not enabled"
 done
+# The pulls need the network, which is masked out of network-online.target here, so the unit must
+# retry rather than fail once at boot and give up until the next reboot.
+grep -q '^Restart=on-failure' /usr/lib/systemd/system/omarchy-flatpak-preinstall.service \
+  && ok "flatpak preinstall retries on failure" || no "flatpak preinstall would not retry a network failure"
+# Nothing else updates the system Flatpaks, so the update timer must be enabled.
+[ -L /etc/systemd/system/timers.target.wants/omarchy-flatpak-update.timer ] \
+  && ok "flatpak update timer enabled" || no "flatpak update timer not enabled"
 
 # Homebrew is PREBUILT in the image (ublue's brew image), not installed over the network at first
 # boot. That is the whole reason the tarball is here: `bash -c "$(curl ...)"` exits 0 when the curl

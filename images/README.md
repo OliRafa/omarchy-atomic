@@ -5,7 +5,7 @@ Two-image design for the bootc PoC:
 | Image | Contents | Status |
 |-------|----------|--------|
 | **core** — `images/core/Containerfile` → `omarchy-atomic-core` | Fedora Asahi base-atomic + Omarchy Hyprland core (`install/omarchy-base.packages.core`) + core first-party tools + m1n1/devicetree fix + **systemd-boot** + prebuilt Homebrew (ublue brew image) + PATH hooks | builds + lints; install-to-disk validated in CI |
-| **preinstalls** — `images/preinstalls/Containerfile` → `omarchy-atomic` | `FROM core` + app-like first-party tools baked in (aether, cliamp, omacut, omawrite) + **first-boot** Flatpak (`install/flatpaks`) & Homebrew (`Brewfile`) provisioning | built |
+| **preinstalls** — `images/preinstalls/Containerfile` → `omarchy-atomic` | `FROM core` + app-like first-party tools baked in (aether, cliamp, omacut, omawrite) + **first-boot** Flatpak (`flatpak preinstall`) & Homebrew (`Brewfile`) provisioning | built |
 
 ## Base image
 
@@ -57,9 +57,14 @@ succeeds either way, which is why CI alone never caught it.
 - **Homebrew + Flatpak = first-boot provisioning, not baked.** Both live in `/var`
   (machine-state), which a bootc image only *seeds* on first boot and does not track on
   upgrades — so they can't live in immutable `/usr` (and baking Flatpaks would add GBs and go
-  stale). Instead the image ships the lists at `/usr/share/omarchy-atomic/{Brewfile,flatpaks}`
-  and two stamped, idempotent oneshot units (the uBlue/Bluefin/Bazzite pattern):
-  - `omarchy-flatpak-setup.service` → adds Flathub, installs `install/flatpaks` system-wide.
+  stale). Instead the image ships the Brewfile at `/usr/share/omarchy-atomic/Brewfile`, the Flatpak
+  manifest at `/usr/share/flatpak/preinstall.d/omarchy-atomic.preinstall`, and two idempotent oneshot
+  units (the uBlue/Bluefin/Bazzite pattern):
+  - `omarchy-flatpak-preinstall.service` → registers Flathub from the baked-in
+    `/etc/flatpak/remotes.d/flathub.flatpakrepo` (no network needed), then runs Fedora/flatpak's
+    upstream `flatpak preinstall -y`, which installs the manifest, is idempotent, and remembers apps
+    the user has removed. `Restart=on-failure` retries the network-dependent pulls out of the boot
+    path (we mask `NetworkManager-wait-online`, so `network-online.target` is no barrier).
   - `omarchy-brew-setup.service` → re-owns the unpacked Homebrew prefix to the primary user and
     runs `brew bundle` against the `Brewfile`. Retries until a primary user exists; `brew bundle`
     can be slow on first boot (some aarch64 formulae build from source).
@@ -138,15 +143,15 @@ Homebrew and the Flatpak app set provision on first boot from the **core** image
 (`images/core/Containerfile` step 5c), not from preinstalls. They are core dependencies: core's
 `mimeapps.list` maps http(s) to `com.brave.Browser` and images to `org.gnome.Loupe`,
 `hypr/apps/system.lua` launches Loupe, and `omarchy-default-editor` runs `nvim` — Brave and Loupe
-come from `install/flatpaks`, nvim from the `Brewfile`. While they lived in preinstalls, a core-only
+come from the Flatpak preinstall manifest, nvim from the `Brewfile`. While they lived in preinstalls, a core-only
 install shipped handlers and commands for software it never installed, and `hack/smoke.sh` asserted
 those repoints without asserting anything installed them.
 
 Neither can be baked into `/usr` as a working install: Homebrew needs a writable prefix owned by a
 human user, and Flatpaks live in `/var/lib/flatpak`, which bootc only seeds on first boot. So both
-stay first-boot services (`omarchy-brew-setup`, `omarchy-flatpak-setup`), idempotent and re-running
-until they succeed — brew waits for a primary user, flatpak stamps done only once every app is
-present.
+stay first-boot services (`omarchy-brew-setup`, `omarchy-flatpak-preinstall`), idempotent and
+re-running until they succeed — brew waits for a primary user, `flatpak preinstall` retries the
+network-dependent pulls until every app is present.
 
 ## Homebrew ships prebuilt, and updates itself
 

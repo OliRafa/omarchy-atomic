@@ -1,0 +1,41 @@
+[Unit]
+Description=Preinstall the omarchy-atomic Flatpak app set (Flathub)
+Documentation=man:flatpak-preinstall(1)
+# Runs Fedora/flatpak's upstream `flatpak preinstall`, which reads /usr/share/flatpak/preinstall.d
+# and installs the vendor app set — the install logic, idempotency and user opt-out are all upstream.
+# This is bluefin-common's flatpak-preinstall.service, adapted: Fedora packages the CLI but no boot
+# unit, and two things differ from bluefin because our platform differs (see below).
+ConditionPathExists=/usr/bin/flatpak
+# network-online.target is NOT a real barrier here: the image masks NetworkManager-wait-online
+# (install/config/enable-services.sh), so it is reached before DHCP/DNS. Keep it as a best-effort
+# hint, but the real robustness is Restart=on-failure below.
+Wants=network-online.target
+After=network-online.target
+# Register Flathub before the system-helper starts, from the baked local file — no network needed.
+Before=flatpak-system-helper.service
+# Retry WITHOUT a cap. bluefin bounds this (StartLimitIntervalSec=600, StartLimitBurst=3) because on
+# their images network-online.target is real, so the network is up by the time it runs and 3 tries
+# suffice. Ours is masked, so this can fire long before DNS answers — a 3-try cap would give up while
+# the network is still coming up, which is the exact failure this unit exists to prevent.
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# DIVERGENCE 1: add the Flathub remote at first boot from the baked local file (Containerfile step
+# 5c), rather than bluefin's build-time `flatpak remote-add`. A build-time system remote writes to
+# /var/lib/flatpak, and our composefs-native image ships a FRESH /var seeded only on first boot, so a
+# build-time remote would not survive to here. Reading a file baked into /etc does, and needs no DNS.
+ExecStartPre=/usr/bin/flatpak remote-add --system --if-not-exists flathub /etc/flatpak/remotes.d/flathub.flatpakrepo
+# No stamp and run on every boot on purpose: `flatpak preinstall` is a fast no-op once satisfied, it
+# applies later additions to the app set, and it honours apps the user has since removed.
+ExecStart=/usr/bin/flatpak preinstall -y --noninteractive
+# The pulls need the network, which is masked out of network-online.target here. When a pull fails
+# `flatpak preinstall` exits non-zero and systemd re-runs this in 30s — out of the boot path, no
+# reboot required. It stops of its own accord once every app is present (a clean exit is not
+# restarted).
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target

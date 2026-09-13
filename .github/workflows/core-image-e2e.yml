@@ -14,7 +14,6 @@ on:
       - 'deploy/**'
       - 'install/omarchy-base.packages.core'
       - 'install/helpers/fedora-first-party.sh'
-      - 'install/flatpaks'
       - 'Brewfile'
       - '.github/workflows/core-image-e2e.yml'
   pull_request:
