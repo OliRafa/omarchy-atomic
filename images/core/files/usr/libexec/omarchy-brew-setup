@@ -10,9 +10,12 @@
 # boot depends on network, and some aarch64 formulae may build from source (slow first boot).
 set -uo pipefail
 
-BREWFILE=/usr/share/omarchy-atomic/Brewfile
-STAMP=/var/lib/omarchy/brew-setup-done
-PREFIX=/home/linuxbrew/.linuxbrew
+# Paths are overridable so the primary-user detection can be exercised off-hardware; see
+# test/shell.d/brew-setup-test.sh.
+BREWFILE="${OMARCHY_BREW_FILE:-/usr/share/omarchy-atomic/Brewfile}"
+STAMP="${OMARCHY_BREW_STAMP:-/var/lib/omarchy/brew-setup-done}"
+PREFIX="${OMARCHY_BREW_PREFIX:-/home/linuxbrew/.linuxbrew}"
+LOGIN_DEFS="${OMARCHY_LOGIN_DEFS:-/etc/login.defs}"
 BREW="$PREFIX/bin/brew"
 
 [ -f "$BREWFILE" ] || { echo "brew-setup: no Brewfile at $BREWFILE"; exit 0; }
@@ -23,12 +26,16 @@ BREW="$PREFIX/bin/brew"
 # accounts sit at 61184-65519 and nss-systemd surfaces them in `getent passwd`. The nologin filter
 # happens to exclude today's (speakersafetyd on Asahi has /usr/sbin/nologin), but the range should
 # not depend on that. omarchy-firstboot-user had the identical bug and it cost a dead-end greeter.
-uid_min=$(awk '$1 == "UID_MIN" { print $2 }' /etc/login.defs 2>/dev/null)
-uid_max=$(awk '$1 == "UID_MAX" { print $2 }' /etc/login.defs 2>/dev/null)
+uid_min=$(awk '$1 == "UID_MIN" { print $2 }' "$LOGIN_DEFS" 2>/dev/null)
+uid_max=$(awk '$1 == "UID_MAX" { print $2 }' "$LOGIN_DEFS" 2>/dev/null)
 uid_min=${uid_min:-1000}
 uid_max=${uid_max:-60000}
+# passwd fields are name:passwd:uid:gid:gecos:home:shell — the NAME is $1. Printing $2 yields the
+# password placeholder, so every machine reported its primary user as the literal "x":
+#   id: 'x': no such user / install: invalid user 'x' / su: user x does not exist
+# and brew has therefore never once installed on first boot.
 read -r uid user < <(getent passwd | awk -F: -v lo="$uid_min" -v hi="$uid_max" \
-  '$3>=lo && $3<=hi && $7 !~ /nologin|false/ {print $3, $2}' | sort -n | head -1)
+  '$3>=lo && $3<=hi && $7 !~ /nologin|false/ {print $3, $1}' | sort -n | head -1)
 if [ -z "${user:-}" ]; then
   echo "brew-setup: no primary user yet; will retry next boot"
   exit 0   # no stamp -> retry
