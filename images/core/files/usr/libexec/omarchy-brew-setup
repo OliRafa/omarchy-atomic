@@ -16,6 +16,7 @@ BREWFILE="${OMARCHY_BREW_FILE:-/usr/share/omarchy-atomic/Brewfile}"
 STAMP="${OMARCHY_BREW_STAMP:-/var/lib/omarchy/brew-setup-done}"
 PREFIX="${OMARCHY_BREW_PREFIX:-/home/linuxbrew/.linuxbrew}"
 LOGIN_DEFS="${OMARCHY_LOGIN_DEFS:-/etc/login.defs}"
+INSTALLER_URL="${OMARCHY_BREW_INSTALLER_URL:-https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh}"
 BREW="$PREFIX/bin/brew"
 
 [ -f "$BREWFILE" ] || { echo "brew-setup: no Brewfile at $BREWFILE"; exit 0; }
@@ -45,13 +46,38 @@ group="$(id -gn "$user")"
 if [ ! -x "$BREW" ]; then
   echo "brew-setup: installing Homebrew for $user"
   # Pre-create the prefix owned by the user so the installer doesn't need interactive sudo.
-  install -d -m0755 -o "$user" -g "$group" /home/linuxbrew "$PREFIX"
-  su - "$user" -c 'NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"' \
+  install -d -m0755 -o "$user" -g "$group" /home/linuxbrew "$PREFIX" \
+    || { echo "brew-setup: could not create $PREFIX" >&2; exit 1; }
+
+  # Download to a file instead of `bash -c "$(curl ...)"`. When that curl fails the substitution is
+  # the EMPTY STRING, bash runs nothing and exits 0, the `||` never fires, and the run marches on
+  # to `brew bundle` against a prefix with no brew in it. That is exactly what happened on
+  # hardware: network-online.target is routinely reached before DNS resolves, and the whole service
+  # failed inside a single second reporting "brew bundle failed" — never naming the real cause.
+  # --retry rides out a network that is merely slow to come up, rather than burning a whole boot.
+  installer="$(mktemp)"
+  trap 'rm -f "$installer"' EXIT
+  if ! curl -fsSL --retry 5 --retry-delay 5 --retry-connrefused "$INSTALLER_URL" -o "$installer"; then
+    echo "brew-setup: could not download the Homebrew installer; will retry next boot" >&2
+    exit 1
+  fi
+  [ -s "$installer" ] || { echo "brew-setup: downloaded an empty Homebrew installer" >&2; exit 1; }
+  chmod 0755 "$installer"
+  su - "$user" -c "NONINTERACTIVE=1 /bin/bash '$installer'" \
     || { echo "brew-setup: Homebrew install failed" >&2; exit 1; }
 fi
 
+# The installer can exit 0 without having produced anything, so assert the one thing that matters
+# rather than discovering it two commands later as a confusing "brew bundle failed".
+if [ ! -x "$BREW" ]; then
+  echo "brew-setup: installer finished but $BREW is missing; will retry next boot" >&2
+  exit 1
+fi
+
+# Call brew by absolute path. Relying on `brew` being on PATH after shellenv means a prefix problem
+# surfaces as "brew: command not found" from a login shell, which reads like a PATH bug.
 echo "brew-setup: applying $BREWFILE"
-su - "$user" -c "eval \"\$('$BREW' shellenv)\"; brew bundle --file='$BREWFILE'" \
+su - "$user" -c "eval \"\$('$BREW' shellenv)\"; '$BREW' bundle --file='$BREWFILE'" \
   || { echo "brew-setup: brew bundle failed" >&2; exit 1; }
 
 mkdir -p "$(dirname "$STAMP")"; date -u +%FT%TZ >"$STAMP"
