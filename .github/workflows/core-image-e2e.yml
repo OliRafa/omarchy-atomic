@@ -31,16 +31,24 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # The install wrapper's ESP copy/replace (deploy/lib/esp-backup.sh) is pure bash — no
-  # container/hardware needed — so it gates on the default runner in seconds, independent of the
-  # heavy image build. It proves the preboot layer (m1n1/vendorfw/asahi/ubootefi.var) survives
-  # whether `bootc install` reformats the ESP or writes into it, and never clobbers systemd-boot.
-  esp-backup-test:
+  # The install wrapper's risky pure-bash logic — ESP copy/replace, the ESP capacity gate, and the
+  # partition table omarchy-atomic-grow-esp writes. No container or hardware needed, so these gate
+  # on the default runner in seconds, independent of the heavy image build.
+  deploy-lib-tests:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # The preboot layer (m1n1/vendorfw/asahi/ubootefi.var) survives whether `bootc install`
+      # reformats the ESP or writes into it, and never clobbers systemd-boot.
       - name: ESP backup/restore e2e (deploy/omarchy-atomic-install)
         run: bash deploy/tests/esp-backup.test.sh
+      # A 500 MiB Asahi ESP cannot hold two composefs deployments; the install must say so up
+      # front rather than leave a machine that can never `bootc upgrade`.
+      - name: ESP capacity arithmetic (deploy/lib/esp-capacity.sh)
+        run: bash deploy/tests/esp-capacity.test.sh
+      # The grown ESP must keep its PARTUUID — the Asahi device tree finds m1n1 stage 2 by it.
+      - name: GPT absorb table (deploy/omarchy-atomic-grow-esp)
+        run: bash deploy/tests/gpt-absorb.test.sh
 
   e2e:
     runs-on: ubuntu-24.04-arm

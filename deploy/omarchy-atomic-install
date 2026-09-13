@@ -25,6 +25,9 @@ set -euo pipefail
 _here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/esp-backup.sh
 . "$_here/lib/esp-backup.sh"
+# ESP capacity arithmetic — the composefs backend puts kernels ON the ESP; see the header there.
+# shellcheck source=lib/esp-capacity.sh
+. "$_here/lib/esp-capacity.sh"
 
 IMAGE="${1:?usage: omarchy-atomic-install <image-ref>   e.g. ghcr.io/olirafa/omarchy-atomic:44}"
 [ "$(id -u)" = 0 ]         || { echo "run as root"; exit 1; }
@@ -104,6 +107,36 @@ elif [[ $IMAGE == localhost/* ]]; then
 else
   echo "==> pulling $IMAGE"
   podman pull "$IMAGE"
+fi
+
+# 3b) ESP capacity. The composefs backend writes vmlinuz + initrd into <ESP>/EFI/Linux/ and finds
+#     the ESP by GPT type GUID — a separate /boot is never used (open upstream TODO; confirmed on
+#     hardware against a correctly typed, mounted XBOOTLDR). The Asahi installer sizes the ESP for
+#     m1n1 + U-Boot + GRUB, not for kernels, so the INSTALL fits and every later `bootc upgrade`
+#     dies with ENOSPC once a second deployment has to coexist with the booted one. Measure the
+#     image's own payload rather than guessing: source this same library inside the image so there
+#     is one implementation of the arithmetic.
+image_payload="$(podman run --rm --entrypoint /bin/bash "$IMAGE" -c \
+  "$(cat "$_here/lib/esp-capacity.sh"); esp_payload_bytes" 2>/dev/null || echo 0)"
+if [[ ${image_payload:-0} -gt 0 ]]; then
+  esp_usable="$(esp_usable_bytes "$esp")"
+  esp_needed="$(esp_required_bytes "$image_payload")"
+  if ! esp_capacity_report "$esp_usable" "$esp_needed" "$image_payload"; then
+    echo >&2
+    echo "$esp is too small for two deployments — this install would succeed and then never" >&2
+    echo "  be able to update: 'bootc upgrade' writes the new kernel + initrd alongside the" >&2
+    echo "  booted one and fails with 'Writing initrd to path: No space left on device'." >&2
+    echo "  Fix it first by folding the (unused under composefs) /boot partition into the ESP:" >&2
+    echo "    findmnt /boot          # note the device, then: umount /boot" >&2
+    echo "    deploy/omarchy-atomic-grow-esp --absorb <that device> --dry-run" >&2
+    echo "  Set OMARCHY_ESP_SMALL_OK=1 to install anyway (upgrades will need the ESP grown)." >&2
+    if [[ ${OMARCHY_ESP_SMALL_OK:-0} != "1" ]]; then
+      exit 1
+    fi
+    echo "==> OMARCHY_ESP_SMALL_OK=1 — continuing with an undersized ESP" >&2
+  fi
+else
+  echo "==> could not measure $IMAGE's kernel payload — skipping the ESP capacity check" >&2
 fi
 
 echo "==> bootc install to-existing-root from $IMAGE"

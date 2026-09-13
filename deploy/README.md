@@ -43,8 +43,11 @@ What it does:
 1. Identifies the OS ESP via `/proc/device-tree/chosen/asahi,efi-system-partition` (authoritative).
 2. **Backs up the entire ESP** to `/var/tmp/asahi-esp-backup` (m1n1, vendorfw, asahi/, ubootefi.var —
    everything, since we can't know in advance whether bootc reformats the ESP or writes into it).
-3. `bootc install to-existing-root --composefs-backend --bootloader systemd` (plain bootc).
-4. **Restores** every backed-up entry bootc removed — *except* `EFI/`, which bootc just wrote
+3. **Checks the ESP is big enough for two deployments** — it measures the image's own
+   `vmlinuz + initramfs.img` and compares against the ESP's free space. A stock 500 MiB Asahi ESP
+   is *not* big enough; see [The ESP is too small for composefs](#the-esp-is-too-small-for-composefs-and-bootc-ignores-xbootldr).
+4. `bootc install to-existing-root --composefs-backend --bootloader systemd` (plain bootc).
+5. **Restores** every backed-up entry bootc removed — *except* `EFI/`, which bootc just wrote
    systemd-boot into. If bootc wrote in place without reformatting, each entry survives and is left
    as-is. Either way the machine boots and the Asahi identity/firmware source is preserved.
 
@@ -82,6 +85,62 @@ macOS 1TR) if the machine won't boot.
 > host. Run anyway and the bootloader points at the image's kernel while `/` stays the pacman
 > root — the machine boots a Fedora kernel against Arch's `/usr/lib/modules`, no module loads,
 > `/boot/efi` (`iocharset=iso8859-1`) fails, and you land in emergency mode.
+
+## The ESP is too small for composefs (and bootc ignores XBOOTLDR)
+
+Under the composefs backend the kernel and initramfs live **on the ESP**:
+`<ESP>/EFI/Linux/bootc_composefs-<digest>/{vmlinuz,initrd}`. bootc finds that ESP by GPT **type
+GUID** — `find_first_colocated_esp()` in `crates/blockdev` walks up to the root disk and picks the
+partition typed `C12A7328-…`. A separate `/boot` is never consulted, whatever it is typed or where
+it is mounted. That is an open upstream gap, stated in
+[`crates/lib/src/bootc_composefs/boot.rs`](https://github.com/bootc-dev/bootc/blob/main/crates/lib/src/bootc_composefs/boot.rs):
+
+> `TODO: support XBOOTLDR. Per BLS, the ESP should be mounted at /efi when a separate XBOOTLDR`
+> `partition is present at /boot. bootc does not yet detect or use XBOOTLDR in the composefs`
+> `install path, so unconditionally mount the ESP at /boot for now.`
+
+Confirmed on hardware: a 1 GiB partition retyped `BC13C2FF-59E6-4262-A352-B275FD6F7172`, formatted
+VFAT and mounted at `/boot` by the boot entry's own `systemd.mount-extra` karg, changed nothing —
+`bootc upgrade` still wrote to the 500 MiB ESP and died with ENOSPC.
+
+That collides with how the Asahi installer partitions a Mac. It sizes the ESP for m1n1 + U-Boot +
+GRUB (500 MiB, of which ~126 MiB is already `m1n1/` + `vendorfw/` + `asahi/`) and puts kernels on a
+separate 1 GiB ext4 `/boot`, because that is what the stock ostree + GRUB layout wants. Under
+composefs the ESP holds the kernels instead, and an **upgrade needs room for two deployments at
+once** — bootc writes the new entry before it collects the booted one. With Fedora Asahi's ~195 MiB
+initramfs that is ~424 MiB of payload against ~373 MiB usable, so the install succeeds and every
+later update fails:
+
+```
+error: Upgrading composefs: … Setting up BLS boot: … Writing initrd to path:
+       No space left on device (os error 28)
+```
+
+### Fix: fold the unused `/boot` into the ESP
+
+An omarchy-atomic machine never uses that `/boot` partition — so it is exactly the space the ESP is
+missing, and it sits directly after it.
+
+```sh
+sudo umount /boot                                  # note the device first: findmnt /boot
+sudo deploy/omarchy-atomic-grow-esp --absorb /dev/nvme0n1p5 --dry-run
+sudo deploy/omarchy-atomic-grow-esp --absorb /dev/nvme0n1p5
+sudo reboot && sudo bootc upgrade
+```
+
+The tool refuses unless the partition really follows the ESP, is unmounted, and is not backing the
+running system; snapshots the whole ESP first (and refuses an empty snapshot); rewrites the GPT
+from an `sfdisk -d` dump so **every PARTUUID is preserved verbatim**; reformats the grown ESP
+reusing its volume ID and label; restores the backup; repoints any boot entry that referenced the
+absorbed partition; and verifies `m1n1/boot.bin` and `EFI/BOOT/BOOTAA64.EFI` are back before it
+reports success.
+
+Preserving the ESP's PARTUUID is the load-bearing part:
+`/proc/device-tree/chosen/asahi,efi-system-partition` holds it, and m1n1 stage 1 uses it to find
+`<ESP>/m1n1/boot.bin`. Change it and the Mac stops booting *before* Linux is reached — recoverable
+only from macOS 1TR. `deploy/tests/gpt-absorb.test.sh` asserts exactly that, off-hardware;
+`deploy/tests/esp-capacity.test.sh` covers the "will it fit?" arithmetic. Both run in
+`core-image-e2e.yml`.
 
 ## Images, signing & updates
 
