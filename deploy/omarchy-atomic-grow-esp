@@ -143,7 +143,10 @@ esp_backup "$esp_mnt" "$BACKUP_DIR"
   die "$BACKUP_DIR/m1n1/boot.bin is missing — that backup is not the OS ESP, refusing to reformat"
 esp_label="$(blkid -s LABEL -o value "$esp_dev" 2>/dev/null || true)"
 esp_volid="$(blkid -s UUID -o value "$esp_dev" 2>/dev/null || true)"
-echo "==> backed up $esp_mnt -> $BACKUP_DIR (label='${esp_label:-none}', volume id=${esp_volid:-none})"
+# The FAT serial is what the restored boot entries say in `boot=UUID=`. mkfs.vfat would invent a
+# fresh one, so without it to hand back we would silently orphan every entry we just restored.
+[[ -n $esp_volid ]] || die "could not read the ESP's FAT volume id — refusing to reformat"
+echo "==> backed up $esp_mnt -> $BACKUP_DIR (label='${esp_label:-none}', volume id=$esp_volid)"
 umount "$esp_mnt" || die "could not unmount the ESP at $esp_mnt — close anything using it and retry"
 if (( esp_mnt_is_ours )); then
   rmdir "$esp_mnt"
@@ -171,9 +174,10 @@ new_partuuid="$(blkid -s PARTUUID -o value "$esp_dev" 2>/dev/null || true)"
   points m1n1 at the old one. Restore it before rebooting: sfdisk --part-uuid $disk <N> $esp_uuid"
 
 echo "==> mkfs.vfat on the grown ESP"
-mkfs_args=(-F 32)
-[[ -n $esp_volid ]] && mkfs_args+=(-i "${esp_volid//-/}")
-[[ -n $esp_label ]] && mkfs_args+=(-n "$esp_label")
+mkfs_args=(-F 32 -i "${esp_volid//-/}")
+if [[ -n $esp_label ]]; then
+  mkfs_args+=(-n "$esp_label")
+fi
 mkfs.vfat "${mkfs_args[@]}" "$esp_dev"
 
 esp_mnt="$(mktemp -d)"
