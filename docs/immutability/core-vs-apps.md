@@ -54,7 +54,10 @@ tooling refs — clean to move.
 - **Kept native in core after verification** (not user apps in practice): `gnome-disk-utility`
   (fronts udisks2; not in Flatpak/brew), `nautilus` (not on Flathub; native-binary launched),
   `mpv`/`mpv-mpris` (v4l2 webcam overlay + shell MPRIS bridge).
-- **Homebrew bootstrap is a core concern**: the base image must install brew and export
-  its shellenv (a `/etc/profile.d` drop-in) so on-demand tooling resolves `nvim`/`tmux`/`gh`.
+- **Homebrew bootstrap is a core concern**: the core image ships Homebrew prebuilt (Universal
+  Blue's `ghcr.io/ublue-os/brew`, unpacked on first boot) and exports its shellenv via
+  `/etc/profile.d/brew.sh`, so on-demand tooling resolves `nvim`/`tmux`/`gh`. brew then updates
+  itself on `brew-update.timer` / `brew-upgrade.timer`, independent of image updates — see
+  [`images/README.md`](../../images/README.md).
 - **IDs verified 2026-09-05** against Flathub / homebrew-core: every Flatpak id and brew
   formula returns 200 except `org.gnome.Nautilus` (404), which is why nautilus stays core.

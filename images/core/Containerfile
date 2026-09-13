@@ -13,6 +13,23 @@
 
 ARG BASE=quay.io/fedora-asahi-remix-atomic-desktops/base-atomic
 ARG FEDORA=44
+
+# Homebrew comes from Universal Blue's brew image — the same one Bluefin and Bazzite consume. It is
+# a `FROM scratch` context image holding only /system_files: a prebuilt, zstd-compressed Homebrew
+# tree at /usr/share/homebrew.tar.zst plus the units and shell hooks that manage it. Built for both
+# amd64 and arm64 (their build.yml matrixes ubuntu-24.04 and ubuntu-24.04-arm into one manifest),
+# so the aarch64 tree we need is the one we get.
+#
+# Taking the prebuilt tree rather than running Homebrew's installer at first boot is the whole
+# point: every brew failure on this distro so far has been a first-boot network failure, and the
+# last one was invisible because `bash -c "$(curl ...)"` exits 0 when the curl fails. An image that
+# already contains Homebrew cannot fail that way.
+#
+# NOTE: this is a third-party image baked into the OS. It is what Bluefin and Bazzite do, and it is
+# a real trust dependency — pin BREW_IMAGE to a digest if that tradeoff ever needs tightening.
+ARG BREW_IMAGE=ghcr.io/ublue-os/brew:latest
+FROM ${BREW_IMAGE} AS brew
+
 FROM ${BASE}:${FEDORA}
 
 ARG OMARCHY_PREFIX=/usr/share/omarchy
@@ -165,14 +182,23 @@ RUN set -eux; \
 #     hack/smoke.sh asserts those mimeapps repoints, so core was already testing for apps it did not
 #     install.
 #
-#     Neither can be baked into /usr. Homebrew needs a writable prefix owned by a human user, and
-#     Flatpaks live in /var/lib/flatpak — machine state bootc only seeds on first boot. So they stay
-#     first-boot services; only their tier changes. Both are idempotent and re-run until they
-#     succeed: brew waits for a primary user, flatpak stamps done only once every app is present.
+#     Neither can live in /usr as a working install. Homebrew needs a writable prefix owned by a
+#     human user, and Flatpaks live in /var/lib/flatpak — machine state bootc only seeds on first
+#     boot. So both stay first-boot services.
+#
+#     Homebrew itself is no longer INSTALLED at first boot, only unpacked: ublue's brew-setup.service
+#     extracts /usr/share/homebrew.tar.zst into /home/linuxbrew, and brew-update.timer /
+#     brew-upgrade.timer keep it current afterwards on their own schedule (6h / 8h), independent of
+#     image updates. omarchy-brew-setup.service is now only "own it correctly and apply our
+#     Brewfile", ordered after theirs. It stays idempotent and retries until it succeeds, as does
+#     flatpak-setup, which stamps done only once every app is present.
+COPY --from=brew /system_files/ /
 COPY Brewfile install/flatpaks /usr/share/omarchy-atomic/
 RUN set -eux; \
+    [ -s /usr/share/homebrew.tar.zst ] || { echo "[5c] brew image shipped no homebrew.tar.zst"; exit 1; }; \
     chmod +x /usr/libexec/omarchy-brew-setup /usr/libexec/omarchy-flatpak-setup; \
-    systemctl enable omarchy-flatpak-setup.service omarchy-brew-setup.service
+    systemctl enable omarchy-flatpak-setup.service omarchy-brew-setup.service; \
+    systemctl enable brew-setup.service brew-update.timer brew-upgrade.timer
 
 # 6) Core first-party tools (tensaku, voxtype, tobi-try, hyprland-preview-share-picker).
 #    The app-like first-party tools (aether/cliamp/omacut/omawrite) are deliberately NOT

@@ -1,5 +1,11 @@
 [Unit]
-Description=Install Homebrew + the omarchy-atomic Brewfile (first boot)
+Description=Apply the omarchy-atomic Brewfile (first boot)
+# Homebrew ships prebuilt in the image; ublue's brew-setup.service unpacks it into /home/linuxbrew.
+# This only re-owns that prefix to the detected primary user and applies our Brewfile, so it must
+# run after both the unpack and the account creation. Ordering only — if either has not happened
+# the helper says so and retries next boot, rather than being silently skipped by a Requires=.
+After=brew-setup.service
+After=omarchy-firstboot-user.service
 After=network-online.target
 Wants=network-online.target
 # Retries each boot until a primary user exists and the bundle succeeds.

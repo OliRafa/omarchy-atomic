@@ -31,6 +31,13 @@ for svc in omarchy-flatpak-setup omarchy-brew-setup; do
   [ -L "/etc/systemd/system/multi-user.target.wants/$svc.service" ] \
     && ok "$svc.service enabled" || no "$svc.service not enabled"
 done
+# The prebuilt Homebrew tree and its self-update timers come from core too.
+[ -s /usr/share/homebrew.tar.zst ] && ok "homebrew.tar.zst shipped (from core)" \
+  || no "homebrew.tar.zst missing"
+for t in brew-update brew-upgrade; do
+  [ -L "/etc/systemd/system/timers.target.wants/$t.timer" ] \
+    && ok "$t.timer enabled (from core)" || no "$t.timer not enabled"
+done
 
 echo
 if [ "$fail" = 0 ]; then echo "PREINSTALLS SMOKE: PASS"; else echo "PREINSTALLS SMOKE: FAIL"; fi

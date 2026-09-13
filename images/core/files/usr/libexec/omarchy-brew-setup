@@ -1,22 +1,30 @@
 #!/usr/bin/env bash
-# First-boot provisioning: install Homebrew (Linuxbrew) + the omarchy-atomic Brewfile.
+# First-boot provisioning: hand Homebrew to the primary user and apply the omarchy-atomic Brewfile.
 #
-# Homebrew needs a writable prefix and a non-root owner, so it cannot live in the immutable
-# image — this installs it once for the primary user, into the shared /home/linuxbrew prefix
-# (which is /var-backed and persists). Retries on later boots until a primary user exists.
-# Same first-boot pattern uBlue/Bluefin use for brew.
+# Homebrew itself is NOT installed here. It ships prebuilt in the image at
+# /usr/share/homebrew.tar.zst (Universal Blue's brew image, the same one Bluefin and Bazzite use),
+# and ublue's own brew-setup.service unpacks it into /home/linuxbrew before this runs. Two things
+# are left over, and they are ours:
 #
-# NOTE: needs on-hardware validation — running the upstream installer + `brew bundle` at first
-# boot depends on network, and some aarch64 formulae may build from source (slow first boot).
+#  1. OWNERSHIP. Their extract does `chown -R 1000:1000`, a fixed uid. That is right on nearly every
+#     machine — useradd hands the first human account 1000 — but it is an assumption, not a fact,
+#     and a brew prefix owned by the wrong uid is a brew that cannot install anything. Re-chown to
+#     the account we actually detect; a no-op when the uid really is 1000.
+#  2. THE BREWFILE. ublue ship no package list; ours defines nvim, tmux, gh and the rest that
+#     omarchy-default-editor and friends resolve against.
+#
+# Why this stopped installing brew: it used to run Homebrew's installer over the network at first
+# boot, and every failure this distro has had with brew was a first-boot network failure. The last
+# one was silent — `/bin/bash -c "$(curl ...)"` exits 0 when the curl fails, so a machine with no
+# brew reported "brew bundle failed" one second into the boot. An image that already contains
+# Homebrew cannot fail that way.
 set -uo pipefail
 
-# Paths are overridable so the primary-user detection can be exercised off-hardware; see
-# test/shell.d/brew-setup-test.sh.
+# Paths are overridable so this can be exercised off-hardware; see test/shell.d/brew-setup-test.sh.
 BREWFILE="${OMARCHY_BREW_FILE:-/usr/share/omarchy-atomic/Brewfile}"
 STAMP="${OMARCHY_BREW_STAMP:-/var/lib/omarchy/brew-setup-done}"
 PREFIX="${OMARCHY_BREW_PREFIX:-/home/linuxbrew/.linuxbrew}"
 LOGIN_DEFS="${OMARCHY_LOGIN_DEFS:-/etc/login.defs}"
-INSTALLER_URL="${OMARCHY_BREW_INSTALLER_URL:-https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh}"
 BREW="$PREFIX/bin/brew"
 
 [ -f "$BREWFILE" ] || { echo "brew-setup: no Brewfile at $BREWFILE"; exit 0; }
@@ -27,56 +35,39 @@ BREW="$PREFIX/bin/brew"
 # accounts sit at 61184-65519 and nss-systemd surfaces them in `getent passwd`. The nologin filter
 # happens to exclude today's (speakersafetyd on Asahi has /usr/sbin/nologin), but the range should
 # not depend on that. omarchy-firstboot-user had the identical bug and it cost a dead-end greeter.
+#
+# passwd fields are name:passwd:uid:gid:gecos:home:shell — the NAME is $1. Printing $2 yields the
+# password placeholder, so every machine reported its primary user as the literal "x":
+#   id: 'x': no such user / install: invalid user 'x' / su: user x does not exist
+# and brew never once installed on first boot.
 uid_min=$(awk '$1 == "UID_MIN" { print $2 }' "$LOGIN_DEFS" 2>/dev/null)
 uid_max=$(awk '$1 == "UID_MAX" { print $2 }' "$LOGIN_DEFS" 2>/dev/null)
 uid_min=${uid_min:-1000}
 uid_max=${uid_max:-60000}
-# passwd fields are name:passwd:uid:gid:gecos:home:shell — the NAME is $1. Printing $2 yields the
-# password placeholder, so every machine reported its primary user as the literal "x":
-#   id: 'x': no such user / install: invalid user 'x' / su: user x does not exist
-# and brew has therefore never once installed on first boot.
 read -r uid user < <(getent passwd | awk -F: -v lo="$uid_min" -v hi="$uid_max" \
   '$3>=lo && $3<=hi && $7 !~ /nologin|false/ {print $3, $1}' | sort -n | head -1)
 if [ -z "${user:-}" ]; then
   echo "brew-setup: no primary user yet; will retry next boot"
   exit 0   # no stamp -> retry
 fi
-group="$(id -gn "$user")"
 
+# The image ships Homebrew; if it is not unpacked, ublue's brew-setup.service has not run or has
+# failed. Say so, rather than blaming the bundle two commands later, and retry next boot.
 if [ ! -x "$BREW" ]; then
-  echo "brew-setup: installing Homebrew for $user"
-  # Pre-create the prefix owned by the user so the installer doesn't need interactive sudo.
-  install -d -m0755 -o "$user" -g "$group" /home/linuxbrew "$PREFIX" \
-    || { echo "brew-setup: could not create $PREFIX" >&2; exit 1; }
-
-  # Download to a file instead of `bash -c "$(curl ...)"`. When that curl fails the substitution is
-  # the EMPTY STRING, bash runs nothing and exits 0, the `||` never fires, and the run marches on
-  # to `brew bundle` against a prefix with no brew in it. That is exactly what happened on
-  # hardware: network-online.target is routinely reached before DNS resolves, and the whole service
-  # failed inside a single second reporting "brew bundle failed" — never naming the real cause.
-  # --retry rides out a network that is merely slow to come up, rather than burning a whole boot.
-  installer="$(mktemp)"
-  trap 'rm -f "$installer"' EXIT
-  if ! curl -fsSL --retry 5 --retry-delay 5 --retry-connrefused "$INSTALLER_URL" -o "$installer"; then
-    echo "brew-setup: could not download the Homebrew installer; will retry next boot" >&2
-    exit 1
-  fi
-  [ -s "$installer" ] || { echo "brew-setup: downloaded an empty Homebrew installer" >&2; exit 1; }
-  chmod 0755 "$installer"
-  su - "$user" -c "NONINTERACTIVE=1 /bin/bash '$installer'" \
-    || { echo "brew-setup: Homebrew install failed" >&2; exit 1; }
+  echo "brew-setup: $BREW is missing — has brew-setup.service unpacked /usr/share/homebrew.tar.zst?" >&2
+  exit 1
 fi
 
-# The installer can exit 0 without having produced anything, so assert the one thing that matters
-# rather than discovering it two commands later as a confusing "brew bundle failed".
-if [ ! -x "$BREW" ]; then
-  echo "brew-setup: installer finished but $BREW is missing; will retry next boot" >&2
-  exit 1
+# ublue's extract chowns to a hardcoded 1000:1000. Point it at the account we detected instead.
+owner="$(stat -c %u "$PREFIX" 2>/dev/null || echo '')"
+if [ "$owner" != "$uid" ]; then
+  echo "brew-setup: re-owning $PREFIX to $user ($uid), was uid ${owner:-unknown}"
+  chown -R "$user" "$PREFIX" || { echo "brew-setup: could not chown $PREFIX" >&2; exit 1; }
 fi
 
 # Call brew by absolute path. Relying on `brew` being on PATH after shellenv means a prefix problem
 # surfaces as "brew: command not found" from a login shell, which reads like a PATH bug.
-echo "brew-setup: applying $BREWFILE"
+echo "brew-setup: applying $BREWFILE as $user"
 su - "$user" -c "eval \"\$('$BREW' shellenv)\"; '$BREW' bundle --file='$BREWFILE'" \
   || { echo "brew-setup: brew bundle failed" >&2; exit 1; }
 

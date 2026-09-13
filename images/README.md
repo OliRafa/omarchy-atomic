@@ -4,7 +4,7 @@ Two-image design for the bootc PoC:
 
 | Image | Contents | Status |
 |-------|----------|--------|
-| **core** — `images/core/Containerfile` → `omarchy-atomic-core` | Fedora Asahi base-atomic + Omarchy Hyprland core (`install/omarchy-base.packages.core`) + core first-party tools + m1n1/devicetree fix + **systemd-boot** + PATH/brew hooks | builds + lints; install-to-disk validated in CI |
+| **core** — `images/core/Containerfile` → `omarchy-atomic-core` | Fedora Asahi base-atomic + Omarchy Hyprland core (`install/omarchy-base.packages.core`) + core first-party tools + m1n1/devicetree fix + **systemd-boot** + prebuilt Homebrew (ublue brew image) + PATH hooks | builds + lints; install-to-disk validated in CI |
 | **preinstalls** — `images/preinstalls/Containerfile` → `omarchy-atomic` | `FROM core` + app-like first-party tools baked in (aether, cliamp, omacut, omawrite) + **first-boot** Flatpak (`install/flatpaks`) & Homebrew (`Brewfile`) provisioning | built |
 
 ## Base image
@@ -60,9 +60,11 @@ succeeds either way, which is why CI alone never caught it.
   stale). Instead the image ships the lists at `/usr/share/omarchy-atomic/{Brewfile,flatpaks}`
   and two stamped, idempotent oneshot units (the uBlue/Bluefin/Bazzite pattern):
   - `omarchy-flatpak-setup.service` → adds Flathub, installs `install/flatpaks` system-wide.
-  - `omarchy-brew-setup.service` → installs Homebrew for the primary user, runs `brew bundle`
-    against the `Brewfile`. Retries until a primary user exists; `brew bundle` can be slow on
-    first boot (some aarch64 formulae build from source). **Needs on-hardware validation.**
+  - `omarchy-brew-setup.service` → re-owns the unpacked Homebrew prefix to the primary user and
+    runs `brew bundle` against the `Brewfile`. Retries until a primary user exists; `brew bundle`
+    can be slow on first boot (some aarch64 formulae build from source).
+
+  Homebrew itself is **not** installed at first boot — see below.
 
 ## e2e tests
 
@@ -140,10 +142,55 @@ come from `install/flatpaks`, nvim from the `Brewfile`. While they lived in prei
 install shipped handlers and commands for software it never installed, and `hack/smoke.sh` asserted
 those repoints without asserting anything installed them.
 
-Neither can be baked into `/usr`: Homebrew needs a writable prefix owned by a human user, and
-Flatpaks live in `/var/lib/flatpak`, which bootc only seeds on first boot. So both stay first-boot
-services (`omarchy-brew-setup`, `omarchy-flatpak-setup`), idempotent and re-running until they
-succeed — brew waits for a primary user, flatpak stamps done only once every app is present.
+Neither can be baked into `/usr` as a working install: Homebrew needs a writable prefix owned by a
+human user, and Flatpaks live in `/var/lib/flatpak`, which bootc only seeds on first boot. So both
+stay first-boot services (`omarchy-brew-setup`, `omarchy-flatpak-setup`), idempotent and re-running
+until they succeed — brew waits for a primary user, flatpak stamps done only once every app is
+present.
+
+## Homebrew ships prebuilt, and updates itself
+
+Homebrew is **not** installed over the network at first boot. The core image pulls Universal Blue's
+[`ghcr.io/ublue-os/brew`](https://github.com/ublue-os/brew) as a build stage — the same image
+Bluefin and Bazzite consume — and copies its `/system_files` in wholesale. That image is
+`FROM scratch` and holds only a prebuilt, zstd-compressed Homebrew tree at
+`/usr/share/homebrew.tar.zst` plus the units that manage it. It is built for both amd64 and arm64
+(their `build.yml` matrixes `ubuntu-24.04` and `ubuntu-24.04-arm` into one manifest), so the
+aarch64 tree we need is the one we get.
+
+Three units come with it, all enabled in step 5c:
+
+| Unit | When | Does |
+|---|---|---|
+| `brew-setup.service` | first boot | unpacks `homebrew.tar.zst` into `/home/linuxbrew`, gated on `ConditionPathExists=!/etc/.linuxbrew` |
+| `brew-update.timer` | boot +10min, then every 6h | `brew update` — Homebrew itself and the formula index |
+| `brew-upgrade.timer` | boot +30min, then every 8h | `brew upgrade` — installed packages |
+
+So **brew does not update with the image**: the tarball is only a seed, and after first boot brew
+maintains itself on its own schedule. A newer image ships a newer seed, which matters only for
+fresh installs.
+
+Why prebuilt rather than running Homebrew's installer: every brew failure this distro has had was a
+first-boot network failure, and the last one was invisible. The helper ran
+`/bin/bash -c "$(curl -fsSL .../install.sh)"`; when that curl fails the substitution is the empty
+string, `bash` runs nothing and exits **0**, so the `|| exit 1` never fired and a machine with no
+brew reported `brew bundle failed` one second into the boot. At boot `network-online.target` is
+routinely reached before DNS answers. An image that already contains Homebrew cannot fail that way.
+
+Two deliberate divergences from ublue:
+
+- Their `brew-setup.service` chowns the unpacked tree to a hardcoded `1000:1000`, and their timers
+  run as `User=1000`. That is right on nearly every machine but it is an assumption;
+  `omarchy-brew-setup` re-owns the prefix to the account it actually detects (a no-op at uid 1000).
+- They ship no package list. Ours applies `/usr/share/omarchy-atomic/Brewfile`.
+
+Their `/etc/profile.d/brew.sh` replaces the old `omarchy-brew.sh`, and is better: it strips brew's
+own `PATH=` line and **appends** brew to `PATH` instead of prepending, so brew's binaries cannot
+shadow system ones (dbus is the breakage they cite).
+
+Note that this bakes a third-party image into the OS. It is exactly what Bluefin and Bazzite do,
+and it is a real trust dependency — `ARG BREW_IMAGE` can be pinned to a digest if that tradeoff
+ever needs tightening.
 
 ## Known bootc follow-ups (tracked; not blockers for the core build)
 

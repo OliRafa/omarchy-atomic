@@ -112,9 +112,37 @@ for svc in omarchy-flatpak-setup omarchy-brew-setup; do
     && ok "$svc.service enabled" || no "$svc.service not enabled"
 done
 
+# Homebrew is PREBUILT in the image (ublue's brew image), not installed over the network at first
+# boot. That is the whole reason the tarball is here: `bash -c "$(curl ...)"` exits 0 when the curl
+# fails, so a first-boot install could — and did — leave a machine with no brew and no error worth
+# the name. If the tarball is missing, brew provisioning cannot work at all.
+echo "== brew ships prebuilt (ublue brew image) =="
+[ -s /usr/share/homebrew.tar.zst ] && ok "homebrew.tar.zst shipped" || no "homebrew.tar.zst missing"
+[ -f /usr/lib/systemd/system/brew-setup.service ] && ok "brew-setup.service (unpack)" \
+  || no "brew-setup.service missing"
+[ -L /etc/systemd/system/multi-user.target.wants/brew-setup.service ] \
+  && ok "brew-setup.service enabled" || no "brew-setup.service not enabled"
+# brew maintains itself on timers, independent of image updates — without these it only ever
+# updates incidentally, when someone happens to run `brew install`.
+for t in brew-update brew-upgrade; do
+  [ -f "/usr/lib/systemd/system/$t.timer" ] && ok "$t.timer shipped" || no "$t.timer missing"
+  [ -L "/etc/systemd/system/timers.target.wants/$t.timer" ] \
+    && ok "$t.timer enabled" || no "$t.timer not enabled"
+done
+# The helper must no longer reach the network: that path is what kept failing.
+grep -vE '^[[:space:]]*#' /usr/libexec/omarchy-brew-setup | grep -qE 'install\.sh|curl|wget' \
+  && no "omarchy-brew-setup still downloads an installer" \
+  || ok "omarchy-brew-setup does not download an installer"
+
 echo "== profile.d hooks =="
 [ -f /etc/profile.d/omarchy-path.sh ] && ok "omarchy-path.sh" || no "omarchy-path.sh missing"
-[ -f /etc/profile.d/omarchy-brew.sh ] && ok "omarchy-brew.sh (brew shellenv)" || no "omarchy-brew.sh missing"
+# ublue's brew.sh replaces our old omarchy-brew.sh: it APPENDS brew to PATH rather than
+# prepending, so brew's binaries cannot shadow system ones (dbus is their cited breakage).
+[ -f /etc/profile.d/brew.sh ] && ok "brew.sh (brew shellenv, ublue)" || no "brew.sh missing"
+grep -q 'PATH}:.*HOMEBREW_PREFIX' /etc/profile.d/brew.sh 2>/dev/null \
+  && ok "brew is appended to PATH, not prepended" || no "brew.sh does not append brew to PATH"
+[ -e /etc/profile.d/omarchy-brew.sh ] && no "the superseded omarchy-brew.sh is still shipped" \
+  || ok "the superseded omarchy-brew.sh is gone"
 
 echo "== mimeapps repoints (browser=Brave, images=Loupe) =="
 mimes=/usr/share/omarchy/default/applications/mimeapps.list
