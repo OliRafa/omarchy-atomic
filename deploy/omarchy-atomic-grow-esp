@@ -84,22 +84,32 @@ for c in sfdisk blkid findmnt mkfs.vfat partx blockdev; do
   command -v "$c" >/dev/null || die "$c is required but not installed"
 done
 
-# Resolve the ESP the way m1n1 does. This PARTUUID is the one thing that must survive.
+# Resolve the ESP the way m1n1 does — by the PARTUUID in the device tree. This is the one thing
+# that must survive, and it is also the only identifier that still works when the kernel's idea of
+# the disk has gone stale.
+#
+# Nothing here may trust a device node to exist. BLKRRPART fails whenever any partition on this
+# disk is mounted (the root filesystem lives here, so: always), which leaves the kernel holding the
+# old table. Worse, a `partx -u` against that stale view can find the grown ESP overlapping a
+# partition the kernel still thinks is there, reject the resize, and DROP the ESP's device node
+# altogether — observed on hardware: /dev/nvme0n1p4 simply vanished while the GPT on disk was
+# perfect. So find the disk by scanning GPTs, and take every fact from `sfdisk -d`.
 esp_uuid="$(tr -d '\0' </proc/device-tree/chosen/asahi,efi-system-partition)"
-esp_dev="$(blkid -t "PARTUUID=$esp_uuid" -o device 2>/dev/null | head -1 || true)"
-[[ -b $esp_dev ]] || die "no block device for PARTUUID=$esp_uuid — cannot identify the ESP"
-disk="/dev/$(lsblk -no PKNAME "$esp_dev")"
-[[ -b $disk ]] || die "could not find the whole disk backing $esp_dev"
-esp_partno="${esp_dev##*[!0-9]}"
-echo "==> ESP: $esp_dev on $disk (PARTUUID=$esp_uuid)"
-
-# Read the table straight off the disk. After a BLKRRPART failure the kernel's view is stale and
-# blkid can report a partition's attributes as missing, so `sfdisk -d` is the only honest source
-# for "what does the GPT actually say" — an earlier version of this script trusted blkid here and
-# aborted with "PARTUUID changed -> none" on a table that was in fact perfect.
 table="$(mktemp)"; new_table="$(mktemp)"
 trap 'rm -f "$table" "$new_table"' EXIT
-sfdisk -d "$disk" >"$table"
+
+disk=""
+for candidate in $(lsblk -dno NAME,TYPE | awk '$2 == "disk" { print "/dev/" $1 }'); do
+  if sfdisk -d "$candidate" 2>/dev/null >"$table" && gpt_node_by_uuid "$esp_uuid" "$table" >/dev/null; then
+    disk="$candidate"
+    break
+  fi
+done
+[[ -n $disk ]] || die "no disk has a partition with PARTUUID=$esp_uuid — cannot identify the ESP"
+esp_dev="$(gpt_node_by_uuid "$esp_uuid" "$table")"
+esp_partno="$(gpt_partno "$esp_dev")"
+on_disk_esp_uuid="$(gpt_field "$esp_dev" uuid "$table")"
+echo "==> ESP: $esp_dev on $disk (PARTUUID=$esp_uuid)"
 
 # Apple NVMe reports 4096-byte sectors. Everything below is in sectors; only the human-readable
 # sizes need the real figure, and hardcoding 512 made a correct 1.5 GiB resize print as 190 MiB.
@@ -108,16 +118,71 @@ sector_size="$(awk '/^sector-size:/ { print $2 }' "$table")"
 mib() { printf '%s\n' "$(( $1 * sector_size / 1024 / 1024 ))"; }
 
 table_partuuid() { gpt_field "$1" uuid "$table" 2>/dev/null || true; }
-on_disk_esp_uuid="$(table_partuuid "$esp_dev")"
-[[ ${on_disk_esp_uuid,,} == "${esp_uuid,,}" ]] || \
-  die "the GPT says $esp_dev is ${on_disk_esp_uuid:-unknown}, but the device tree points m1n1 at
-  $esp_uuid. Sort that out before touching anything."
 
-esp_volid="$(blkid -s UUID -o value "$esp_dev" 2>/dev/null || true)"
+# kernel_partitions DISK — "<number> <node>" for every partition the kernel currently has.
+kernel_partitions() {
+  local base name
+  base="$(basename "$1")"
+  for name in /sys/block/"$base"/"$base"*; do
+    [[ -r $name/partition ]] || continue
+    printf '%s /dev/%s\n' "$(cat "$name/partition")" "$(basename "$name")"
+  done
+}
+
+# reconcile_kernel_partitions DISK — make the kernel's partitions match the on-disk table: drop the
+# ones the table no longer has, add the ones it is missing, resize the rest. Deletions come first,
+# because a stale partition overlapping a grown one is exactly what makes the resize fail.
+reconcile_kernel_partitions() {
+  local disk="$1" no node mnt table_nos=" " kernel_nos=" "
+  while read -r node; do
+    [[ -n $node ]] && table_nos+="$(gpt_partno "$node") "
+  done < <(gpt_nodes "$table")
+
+  while read -r no node; do
+    [[ -n $no ]] || continue
+    kernel_nos+="$no "
+    [[ $table_nos == *" $no "* ]] && continue
+    mnt="$(findmnt -no TARGET --source "$node" 2>/dev/null || true)"
+    [[ -z $mnt ]] || die "the kernel still lists $node (mounted at $mnt) but the partition table
+  does not. Unmount it first: umount $mnt"
+    echo "==> kernel lists partition $no, which the table no longer has — removing"
+    partx -d --nr "$no" "$disk" || die "could not remove stale partition $no from the kernel"
+  done < <(kernel_partitions "$disk")
+
+  for no in $table_nos; do
+    if [[ $kernel_nos == *" $no "* ]]; then
+      partx -u --nr "$no" "$disk" 2>/dev/null || true
+    else
+      echo "==> partition $no is in the table but not in the kernel — adding"
+      partx -a --nr "$no" "$disk" || die "could not add partition $no to the kernel"
+    fi
+  done
+  udevadm settle 2>/dev/null || true
+}
+
+# --dry-run promises to touch nothing, and reconciling changes the kernel's partition list (not the
+# disk), so it only runs for real. A dry run on a machine whose kernel has lost the ESP's node
+# therefore reports that instead of reading the filesystem.
+esp_volid="" esp_label=""
+if (( DRY_RUN )); then
+  if [[ ! -b $esp_dev ]]; then
+    echo "==> note: the kernel has no device node for $esp_dev; a real run would add it back" >&2
+  fi
+else
+  reconcile_kernel_partitions "$disk"
+  [[ -b $esp_dev ]] || die "$esp_dev still has no device node — the kernel would not adopt the
+  partition table. Reboot and re-run; nothing destructive has happened."
+fi
+
+if [[ -b $esp_dev ]]; then
+  esp_volid="$(blkid -s UUID -o value "$esp_dev" 2>/dev/null || true)"
+  esp_label="$(blkid -s LABEL -o value "$esp_dev" 2>/dev/null || true)"
+fi
 # The restored boot entries say `boot=UUID=<fat serial>`, and mkfs.vfat invents a fresh one unless
 # given it. Without the old serial to hand back we would silently orphan every entry.
-[[ -n $esp_volid ]] || die "could not read the ESP's FAT volume id — refusing to continue"
-esp_label="$(blkid -s LABEL -o value "$esp_dev" 2>/dev/null || true)"
+if (( ! DRY_RUN )); then
+  [[ -n $esp_volid ]] || die "could not read the ESP's FAT volume id — refusing to continue"
+fi
 
 # The ESP is normally mounted nowhere on this layout, so mount it on demand.
 esp_mnt="" esp_mnt_is_ours=0
@@ -186,11 +251,15 @@ if (( DRY_RUN )); then
     fi
     rmdir "$probe"
   fi
-  echo "==> current boot entry kargs:"
-  mount_esp_rw
-  grep -rh 'boot=UUID=\|mount-extra' "$esp_mnt/loader/entries" 2>/dev/null | sed 's/^/      /' \
-    || echo "      (none)"
-  unmount_esp
+  if [[ -b $esp_dev ]]; then
+    echo "==> current boot entry kargs (the ESP's own volume id is ${esp_volid:-unknown}):"
+    mount_esp_rw
+    grep -rh 'boot=UUID=\|mount-extra' "$esp_mnt/loader/entries" 2>/dev/null | sed 's/^/      /' \
+      || echo "      (none)"
+    unmount_esp
+  else
+    echo "==> boot entries cannot be read until the kernel has the ESP's device node back" >&2
+  fi
   echo
   echo "==> --dry-run: nothing was written."
   exit 0
@@ -230,12 +299,10 @@ if (( need_table_rewrite )); then
     sfdisk --part-uuid $disk $esp_partno $esp_uuid"
   echo "==> table written; ESP PARTUUID preserved ($esp_uuid)"
 
-  # Nudge the kernel: `partx -u` alone will not drop a deleted partition, and a stale one
-  # overlapping the grown ESP makes the resize fail.
-  absorb_partno="${ABSORB##*[!0-9]}"
-  partx -d --nr "$absorb_partno" "$disk" 2>/dev/null || true
-  partx -u "$disk" 2>/dev/null || true
-  udevadm settle 2>/dev/null || true
+  # Make the kernel adopt it: drop the absorbed partition before updating the ESP, or the resize
+  # is rejected for overlapping a partition the kernel still believes in.
+  sfdisk -d "$disk" >"$table"
+  reconcile_kernel_partitions "$disk"
 fi
 
 # 3) Grow the filesystem to fill the partition.

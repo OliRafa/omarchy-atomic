@@ -101,3 +101,21 @@ gpt_absorb_table() {
     { print }
   ' "$file"
 }
+
+# gpt_node_by_uuid PARTUUID [DUMP_FILE] — the partition node whose `uuid=` matches, case-insensitive.
+# Reads the table, not the kernel: after a failed BLKRRPART the kernel may have no device node for a
+# partition that is perfectly well described on disk, which is exactly when this is needed.
+gpt_node_by_uuid() {
+  local want="$1" file="${2:--}" node
+  while read -r node; do
+    [[ -z $node ]] && continue
+    if [[ "$(gpt_field "$node" uuid "$file" 2>/dev/null | tr 'A-Z' 'a-z')" == "$(printf '%s' "$want" | tr 'A-Z' 'a-z')" ]]; then
+      printf '%s\n' "$node"
+      return 0
+    fi
+  done < <(gpt_nodes "$file")
+  return 1
+}
+
+# gpt_partno NODE — the trailing partition number of a device node (/dev/nvme0n1p4 -> 4).
+gpt_partno() { printf '%s\n' "${1##*[!0-9]}"; }

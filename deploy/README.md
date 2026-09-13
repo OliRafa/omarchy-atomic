@@ -141,16 +141,20 @@ partial run is expected, and it skips whatever is already done:
    system.
 2. **Make the kernel adopt the table.** `BLKRRPART` always fails here — the root filesystem lives
    on the same disk, so the kernel answers "Device or resource busy" and keeps the old table. The
-   tool drops the absorbed partition and updates the ESP with `partx`; if the kernel still
-   disagrees it stops and asks for a reboot rather than `mkfs` against a stale geometry. Rebooting
-   at that point is safe precisely because phase 0 already ran.
+   tool reconciles the kernel's partition list against the on-disk table with `partx`: deletions
+   first (a stale partition overlapping the grown ESP is exactly what makes the resize fail), then
+   additions, then resizes. If the kernel still disagrees it stops and asks for a reboot rather
+   than `mkfs` against a stale geometry. Rebooting at that point is safe precisely because phase 0
+   already ran.
 3. **Grow the filesystem**: snapshot the whole ESP (refusing an empty snapshot), `mkfs.vfat`
    reusing its volume ID and label, restore, and verify `m1n1/boot.bin` and
    `EFI/BOOT/BOOTAA64.EFI` are back before reporting success.
 
-Verification reads the partition table with `sfdisk -d`, straight off the disk, never `blkid`:
-after a failed `BLKRRPART` the kernel's view is stale and `blkid` can report a partition's
-attributes as missing entirely.
+**Nothing in the tool trusts a device node to exist.** It finds the disk by scanning GPTs for the
+device tree's PARTUUID and takes every fact from `sfdisk -d`, never `blkid` or `lsblk`. That is not
+defensive programming: after a failed `BLKRRPART`, a `partx -u` can find the grown ESP overlapping
+a partition the kernel still believes in, reject the resize, and drop the ESP's device node
+altogether — `/dev/nvme0n1p4` vanished on hardware while the GPT on disk was perfect.
 
 Preserving the ESP's PARTUUID is the load-bearing part:
 `/proc/device-tree/chosen/asahi,efi-system-partition` holds it, and m1n1 stage 1 uses it to find

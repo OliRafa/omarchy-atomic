@@ -125,5 +125,25 @@ while read -r node; do after_total=$((after_total + $(gpt_field "$node" size "$t
 is "total allocated sectors are unchanged" "$before_total" "$after_total"
 
 echo
+echo "== gpt_node_by_uuid: finding the ESP without trusting the kernel"
+
+# This is how the tool locates the ESP after a failed BLKRRPART, when /dev/nvme0n1p4 can be missing
+# from the kernel entirely while the GPT on disk is perfect. Observed on hardware.
+is "finds the node by PARTUUID"        "/dev/nvme0n1p4" "$(gpt_node_by_uuid "$ESP_UUID" "$tmp/dump")"
+is "case-insensitive (blkid vs sfdisk spelling)" "/dev/nvme0n1p4" \
+  "$(gpt_node_by_uuid "${ESP_UUID,,}" "$tmp/dump")"
+if gpt_node_by_uuid "00000000-0000-0000-0000-000000000000" "$tmp/dump" >/dev/null 2>&1; then
+  no "an unknown PARTUUID must fail"
+else
+  ok "an unknown PARTUUID fails rather than guessing"
+fi
+# After the absorb the ESP must still answer to the same PARTUUID — that is the whole point.
+is "still found in the rewritten table" "/dev/nvme0n1p4" "$(gpt_node_by_uuid "$ESP_UUID" "$tmp/new")"
+
+is "gpt_partno on nvme"  "4"  "$(gpt_partno /dev/nvme0n1p4)"
+is "gpt_partno past 9"   "12" "$(gpt_partno /dev/nvme0n1p12)"
+is "gpt_partno on sd"    "2"  "$(gpt_partno /dev/sda2)"
+
+echo
 printf 'gpt-absorb: %d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
