@@ -1,0 +1,77 @@
+# omarchy-atomic — FAIRYDUST-CORE image (Fedora Asahi · Apple Silicon / aarch64)
+#
+# FROM the core image; swaps the stock Asahi kernel-16k for the experimental "fairydust" kernel
+# (AsahiLinux/linux `fairydust` branch — USB-C DisplayPort alt-mode on Apple Silicon MacBooks),
+# built in the separate OliRafa/omarchy-fairydust-kernel repo and published as a FROM-scratch
+# context image (only /usr/lib/modules/<kver>/). After the swap the composefs initramfs is rebuilt
+# against the new kernel — core's step 3c built it for the stock kernel, which this image removes.
+# Everything else — desktop, systemd-boot, the m1n1/devicetree wiring (core step 5), first-boot
+# provisioning — is inherited from core unchanged. The DTBS path core points update-m1n1 at
+# (/usr/lib/modules/$(uname -r)/dtb) is version-agnostic, so it follows the fairydust kernel with
+# no change.
+#
+# EXPERIMENTAL / unsupported: fairydust is a dev branch and the kernel image tracks its HEAD (see
+# the kernel repo's README). This variant is not a drop-in replacement for core on every machine.
+#
+# Build (needs the core image built/pulled first):
+#   ./images/build.sh core && ./images/build.sh fairydust-core
+#   FDK_IMAGE=ghcr.io/olirafa/omarchy-fairydust-kernel:44 ./images/build.sh fairydust-core
+
+ARG FDK_IMAGE=ghcr.io/olirafa/omarchy-fairydust-kernel:latest
+ARG BASE=omarchy-atomic-core
+ARG TAG=44
+
+FROM ${FDK_IMAGE} AS fairydust
+FROM ${BASE}:${TAG}
+
+# 1) Swap the stock kernel-16k for the fairydust build. The kernel image ships a FROM-scratch
+#    /usr/lib/modules/<kver>/ tree (vmlinuz, dtb/, stripped modules, modules.dep) plus
+#    /usr/lib/modules/fairydust.kver naming the version. Copy it in beside core's stock tree, then
+#    remove every non-fairydust kernel tree so exactly one kernel remains for the initramfs rebuild
+#    and the eventual install to pick. rpm -e drops the stock kernel-16k RPMs (best-effort:
+#    asahi-platform-metapackage may hold the meta, so the directory sweep is the authoritative
+#    cleanup); no Secure Boot on the m1n1/u-boot chain means the fairydust kernel needs no signing.
+COPY --from=fairydust /usr/lib/modules /usr/lib/modules
+RUN set -eux; \
+    newkver="$(cat /usr/lib/modules/fairydust.kver)"; \
+    { [ -n "$newkver" ] && [ -e "/usr/lib/modules/$newkver/vmlinuz" ]; } \
+      || { echo "[1] fairydust kernel tree missing or fairydust.kver empty"; exit 1; }; \
+    for p in $(rpm -qa 'kernel-16k*'); do echo "[1] removing stock RPM: $p"; rpm -e --nodeps "$p" 2>/dev/null || true; done; \
+    for d in /usr/lib/modules/*/; do \
+      k="$(basename "$d")"; \
+      [ "$k" = "$newkver" ] && continue; \
+      echo "[1] removing non-fairydust kernel tree: $k"; \
+      rm -rf "$d"; \
+    done; \
+    depmod -a "$newkver"; \
+    rm -f /usr/lib/modules/fairydust.kver; \
+    n="$(find /usr/lib/modules -maxdepth 2 -name vmlinuz | wc -l)"; \
+    [ "$n" = 1 ] || { echo "[1] expected exactly one kernel after swap, found $n"; exit 1; }; \
+    echo "[1] swapped to fairydust kernel $newkver"
+
+# 2) Rebuild the composefs initramfs against the fairydust kernel. This mirrors core's step 3c
+#    exactly (kept in sync with it): core built /usr/lib/modules/<stockkver>/initramfs.img for the
+#    kernel we just removed, so without this the fairydust boot entry would carry no bootc composefs
+#    root setup and boot the image's kernel against whatever /usr is on the disk. See core step 3c
+#    for the full rationale (ostree-only base initramfs, DRACUT_NO_XATTR noise, the /var/roothome
+#    dangling-symlink workaround). FAIL the build if the rebuilt initramfs lacks the pivot unit.
+RUN set -eux; \
+    export DRACUT_NO_XATTR=1 DRACUT_NO_MKNOD=1; \
+    kver="$(basename "$(dirname "$(find /usr/lib/modules -maxdepth 2 -name vmlinuz | head -1)")")"; \
+    moddir="$(ls -d /usr/lib/dracut/modules.d/*bootc 2>/dev/null | head -1)"; \
+    [ -n "$moddir" ] || { echo "[2] no bootc dracut module — composefs installs cannot pivot"; exit 1; }; \
+    modname="$(basename "$moddir" | sed 's/^[0-9]*//')"; \
+    echo "[2] rebuilding initramfs for $kver with dracut module '$modname' ($moddir)"; \
+    if [ -e /var/roothome ]; then roothome_made=0; else mkdir -p /var/roothome; roothome_made=1; fi; \
+    dracut --force --no-hostonly --reproducible --kver "$kver" \
+      --add "$modname" "/usr/lib/modules/$kver/initramfs.img"; \
+    if [ "$roothome_made" = 1 ]; then rmdir /var/roothome; fi; \
+    lsinitrd "/usr/lib/modules/$kver/initramfs.img" | grep -q 'bootc-root-setup\.service' \
+      || { echo "[2] rebuilt initramfs lacks bootc-root-setup.service"; exit 1; }; \
+    echo "[2] initramfs carries bootc composefs root setup"
+
+# 3) Clear build residue and lint, so the variant is bootc-clean like core/preinstalls.
+RUN rm -rf /var/cache/dnf /var/cache/libdnf5 /var/lib/dnf/repos /var/lib/dnf/history* \
+ && rm -f /var/log/dnf5.log* /var/log/dnf.log* /var/log/hawkey.log* \
+ && rm -rf /run/dnf /tmp/* \
+ && bootc container lint
