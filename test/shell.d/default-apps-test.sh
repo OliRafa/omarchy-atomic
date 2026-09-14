@@ -179,9 +179,7 @@ browser_cases=(
 )
 
 terminal_cases=(
-  'alacritty Alacritty.desktop'
   'foot foot.desktop'
-  'ghostty com.mitchellh.ghostty.desktop'
   'kitty kitty.desktop'
 )
 

@@ -51,7 +51,7 @@ by Fedora, and each one is a person who can stop maintaining it.
 | COPR | What it provides | Notes |
 |---|---|---|
 | [`nclundell/fedora-extras`](https://copr.fedorainfracloud.org/coprs/nclundell/fedora-extras/) | `lazydocker`, `bottom`, `nushell`, `yazi`, and others | assorted TUIs |
-| [`scottames/ghostty`](https://copr.fedorainfracloud.org/coprs/scottames/ghostty/) | `ghostty` | only needed by `omarchy-install-terminal ghostty`. The default terminal is alacritty, so this must never be required - it used to be, pointing at a COPR that did not exist, and that alone killed every install. |
+| [`scottames/ghostty`](https://copr.fedorainfracloud.org/coprs/scottames/ghostty/) | `ghostty` | Omarchy no longer installs Ghostty (it is not on Flathub or Homebrew for Linux), but the COPR stays enabled so a user who wants it can `dnf install ghostty` themselves. Optional, so a missing ghostty must never fail an install. |
 
 The compositor package is chosen at install time by `install/helpers/fedora-hyprland.sh`, not listed
 in `omarchy-base.packages.fedora`. `lionheartp/Hyprland` builds stable `hyprland` once per release
@@ -171,8 +171,9 @@ covers what dnf cannot reach:
 
 No AUR, no `pacman`/`yay`/`paru`, no `mkinitcpio`, no `limine` - those are upstream Omarchy's, and
 every path here goes through `dnf`, `rpm` and COPR instead. Boot and initramfs are `dracut` and
-`grub-btrfs`. The default terminal is `alacritty`, not ghostty; foot, ghostty and kitty are
-available through `omarchy-install-terminal`, and their configs ship pre-seeded either way. No waybar, walker, elephant, mako or swayosd
+`grub-btrfs`. The default terminal is `foot` (native, in the core image); `kitty` is an opt-in
+Homebrew install through `omarchy-install-terminal`. Alacritty and Ghostty are no longer installed
+by Omarchy - users add those themselves - though their theme configs still ship pre-seeded. No waybar, walker, elephant, mako or swayosd
 either - quattro retired them, and the one Quickshell shell does all of it. x86-only hardware support
 (NVIDIA, Intel, Dell, ASUS, Lenovo, Framework) is present but never wired in: it is guarded by
 `omarchy-hw-*` checks that cannot match on Apple Silicon.
