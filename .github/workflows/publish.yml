@@ -4,8 +4,9 @@ name: Publish images (GHCR)
 # `bootc upgrade` have something to pull, then cosign-sign them (keyless, via GitHub OIDC).
 # aarch64 runner — the images are Apple-Silicon / Fedora Asahi only.
 #
-#   ghcr.io/<owner>/omarchy-atomic-core:44   (core)
-#   ghcr.io/<owner>/omarchy-atomic:44        (preinstalls, FROM core)
+#   ghcr.io/<owner>/omarchy-atomic-core:44             (core)
+#   ghcr.io/<owner>/omarchy-atomic:44                  (preinstalls, FROM core)
+#   ghcr.io/<owner>/omarchy-atomic-fairydust-core:44   (fairydust kernel swap, FROM core)
 #
 # Also tagged :44-<shortsha> (immutable) and :latest. Signatures are verified on-device by the
 # /etc/containers/policy.json shipped in the core image (see images/core/files/etc/containers).
@@ -49,6 +50,7 @@ jobs:
           {
             echo "core=ghcr.io/$owner/omarchy-atomic-core"
             echo "preinstalls=ghcr.io/$owner/omarchy-atomic"
+            echo "fairydust=ghcr.io/$owner/omarchy-atomic-fairydust-core"
             echo "sha=${GITHUB_SHA::12}"
           } >> "$GITHUB_OUTPUT"
 
@@ -76,6 +78,11 @@ jobs:
       - name: Build preinstalls image (FROM the core just built)
         run: env ENGINE=podman FEDORA="$FEDORA" ./images/build.sh preinstalls
 
+      # fairydust-core: FROM the core just built, with the stock kernel-16k swapped for the
+      # experimental fairydust kernel (pulled as a prebuilt context image from ghcr — no compile).
+      - name: Build fairydust-core image (FROM core; kernel swap)
+        run: env ENGINE=podman FEDORA="$FEDORA" ./images/build.sh fairydust-core
+
       - name: Log in to GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u "${{ github.actor }}" --password-stdin
 
@@ -85,6 +92,7 @@ jobs:
           set -euo pipefail
           core="${{ steps.refs.outputs.core }}"
           pre="${{ steps.refs.outputs.preinstalls }}"
+          fd="${{ steps.refs.outputs.fairydust }}"
           sha="${{ steps.refs.outputs.sha }}"
           push_one() {           # push_one <local> <remote-repo> <digestfile>
             local local_tag="$1" repo="$2" df="$3"
@@ -95,11 +103,13 @@ jobs:
             podman push "$repo:latest"
             echo "  pushed $repo (digest $(cat "$df"))"
           }
-          push_one "omarchy-atomic-core:$FEDORA" "$core" core.digest
-          push_one "omarchy-atomic:$FEDORA"      "$pre"  pre.digest
+          push_one "omarchy-atomic-core:$FEDORA"           "$core" core.digest
+          push_one "omarchy-atomic:$FEDORA"                "$pre"  pre.digest
+          push_one "omarchy-atomic-fairydust-core:$FEDORA" "$fd"   fd.digest
           {
             echo "core_ref=$core@$(cat core.digest)"
             echo "pre_ref=$pre@$(cat pre.digest)"
+            echo "fd_ref=$fd@$(cat fd.digest)"
           } >> "$GITHUB_OUTPUT"
 
       - name: Install cosign
@@ -113,6 +123,7 @@ jobs:
           cosign login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}"
           cosign sign "${{ steps.push.outputs.core_ref }}"
           cosign sign "${{ steps.push.outputs.pre_ref }}"
+          cosign sign "${{ steps.push.outputs.fd_ref }}"
 
       - name: Summary
         run: |
@@ -121,6 +132,7 @@ jobs:
             echo ""
             echo "- \`${{ steps.push.outputs.core_ref }}\`"
             echo "- \`${{ steps.push.outputs.pre_ref }}\`"
+            echo "- \`${{ steps.push.outputs.fd_ref }}\`"
             echo ""
             echo "Tags: \`$FEDORA\`, \`$FEDORA-${{ steps.refs.outputs.sha }}\`, \`latest\`"
           } >> "$GITHUB_STEP_SUMMARY"
