@@ -1,11 +1,12 @@
 # omarchy-atomic bootc images
 
-Two-image design for the bootc PoC:
+Image design for the bootc PoC:
 
 | Image | Contents | Status |
 |-------|----------|--------|
 | **core** — `images/core/Containerfile` → `omarchy-atomic-core` | Fedora Asahi base-atomic + Omarchy Hyprland core (`install/omarchy-base.packages.core`) + core first-party tools + m1n1/devicetree fix + **systemd-boot** + prebuilt Homebrew (ublue brew image) + PATH hooks | builds + lints; install-to-disk validated in CI |
 | **preinstalls** — `images/preinstalls/Containerfile` → `omarchy-atomic` | `FROM core` + app-like first-party tools baked in (aether, cliamp, omacut, omawrite) + **first-boot** Flatpak (`flatpak preinstall`) & Homebrew (`Brewfile`) provisioning | built |
+| **fairydust-core** — `images/fairydust-core/Containerfile` → `omarchy-atomic-fairydust-core` | `FROM core` with the stock `kernel-16k` swapped for the experimental **fairydust** kernel (USB-C DisplayPort alt-mode) + composefs initramfs rebuilt against it | built + smoke-tested in CI; **experimental** |
 
 ## Base image
 
@@ -70,6 +71,34 @@ succeeds either way, which is why CI alone never caught it.
     can be slow on first boot (some aarch64 formulae build from source).
 
   Homebrew itself is **not** installed at first boot — see below.
+
+## Fairydust-core variant
+
+`FROM omarchy-atomic-core`, this swaps the stock Asahi `kernel-16k` for the experimental
+**fairydust** kernel — `AsahiLinux/linux`'s `fairydust` branch, which adds USB-C **DisplayPort
+alt-mode** output on Apple Silicon MacBooks. The kernel is **not** compiled here: it is built in the
+separate [`OliRafa/omarchy-fairydust-kernel`](https://github.com/OliRafa/omarchy-fairydust-kernel)
+repo and published as a `FROM scratch` context image holding only `/usr/lib/modules/<kver>/`
+(vmlinuz, Apple DTBs, stripped modules). That repo tracks the branch HEAD and rebuilds only when it
+moves; this image consumes it the same way core consumes the Homebrew image — a build stage plus
+`COPY --from`.
+
+```sh
+./images/build.sh core && ./images/build.sh fairydust-core
+FDK_IMAGE=ghcr.io/olirafa/omarchy-fairydust-kernel:44 ./images/build.sh fairydust-core   # pin a tag
+./images/fairydust-core/hack/smoke.sh                                                    # verify
+```
+
+The Containerfile does three things: `COPY --from` the kernel tree in, remove every non-fairydust
+kernel tree (so exactly one kernel remains), and **rebuild the composefs initramfs** against it —
+core's step 3c built the initramfs for the stock kernel this image removes, so without the rebuild a
+composefs install would carry no bootc root pivot and boot the image's kernel against the host's
+`/usr`. The m1n1/devicetree wiring core sets up (`DTBS=/usr/lib/modules/$(uname -r)/dtb`, step 5) is
+version-agnostic and follows the new kernel with no change.
+
+**Experimental / unsupported**, and only meaningfully verifiable on hardware: the smoke test confirms
+the swap (fairydust modules present, stock `kernel-16k` gone, EFI-stub vmlinuz, Apple DTBs, rebuilt
+initramfs), but DisplayPort alt-mode itself is a real-Mac check — see the kernel repo's README.
 
 ## e2e tests
 

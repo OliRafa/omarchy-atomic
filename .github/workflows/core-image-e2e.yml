@@ -158,6 +158,15 @@ jobs:
       - name: Container smoke test (preinstalls)
         run: sudo env ENGINE=podman ./images/preinstalls/hack/smoke.sh omarchy-atomic:44
 
+      # fairydust-core variant: swaps the stock kernel-16k for the experimental fairydust kernel
+      # (pulled as a prebuilt context image from ghcr — no kernel compile here) and rebuilds the
+      # composefs initramfs against it. Builds FROM the core image already in local storage.
+      - name: Build fairydust-core image (kernel swap + initramfs rebuild)
+        run: sudo env ENGINE=podman ./images/build.sh fairydust-core
+
+      - name: Container smoke test (fairydust-core)
+        run: sudo env ENGINE=podman ./images/fairydust-core/hack/smoke.sh omarchy-atomic-fairydust-core:44
+
       - name: Build the on-hardware boot-test overlay (compiles the gated smoke unit)
         run: |
           sudo podman build -t omarchy-atomic-core:44-boottest \
