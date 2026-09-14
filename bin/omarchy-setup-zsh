@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/bash
 # omarchy:summary=Set up zsh as the default interactive shell
 # Setup zsh as the default interactive shell for Omarchy
 # This configures zsh with Omarchy customizations and optionally auto-launches it from bash
@@ -7,32 +7,51 @@ set -euo pipefail
 
 ZSHRC="${HOME}/.zshrc"
 BASHRC="${HOME}/.bashrc"
-ZSHRC_TEMPLATE="${HOME}/.local/share/omarchy/default/zsh/templates/zshrc"
-BASHRC_TEMPLATE="${HOME}/.local/share/omarchy/default/zsh/templates/bashrc"
 ZSHRC_BACKUP="${HOME}/.zshrc.backup-$(date +%Y%m%d-%H%M%S)"
 BASHRC_BACKUP="${HOME}/.bashrc.backup-$(date +%Y%m%d-%H%M%S)"
 BASHRC_DEFAULT="${HOME}/.local/share/omarchy/default/bashrc"
 
-# Check if zsh is installed
+# Omarchy delivers CLI tools through Homebrew, so install zsh from brew when it
+# is missing rather than assuming a system package.
 if ! omarchy-cmd-present zsh; then
-    echo "Error: zsh is not installed. Please install it first:"
-    echo "  yay -S zsh"
-    exit 1
+    if ! omarchy-cmd-present brew; then
+        echo "Error: zsh is not installed and Homebrew is unavailable to install it." >&2
+        echo "Install Homebrew first, then run: brew install zsh" >&2
+        exit 1
+    fi
+    echo "zsh is not installed; installing it with Homebrew..."
+    brew install zsh
+    echo ""
 fi
 
 echo "Setting up zsh for Omarchy..."
 echo ""
 
-# Install .zshrc template (adapted for Omarchy paths)
+# If a .zshrc already exists, let the user keep their own config instead of
+# overwriting it. Only replace it (backing the old one up first) when asked.
+WRITE_ZSHRC=1
 if [ -f "${ZSHRC}" ]; then
-    cp "${ZSHRC}" "${ZSHRC_BACKUP}"
-    echo "✓ Backed up existing .zshrc to:"
-    echo "  ${ZSHRC_BACKUP}"
+    echo "An existing ~/.zshrc was found."
+    echo "Keep your current config, or replace it with the Omarchy defaults?"
+    echo "Replacing backs your current ~/.zshrc up first."
     echo ""
+    read -p "Replace ~/.zshrc with the Omarchy defaults? [y/N] " -n 1 -r
+    echo ""
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        cp "${ZSHRC}" "${ZSHRC_BACKUP}"
+        echo "✓ Backed up existing .zshrc to:"
+        echo "  ${ZSHRC_BACKUP}"
+        echo ""
+    else
+        WRITE_ZSHRC=0
+        echo "✓ Keeping your existing ~/.zshrc"
+        echo ""
+    fi
 fi
 
 # Create .zshrc from template, replacing package paths with Omarchy paths
-cat > "${ZSHRC}" << 'EOF'
+if (( WRITE_ZSHRC )); then
+    cat > "${ZSHRC}" << 'EOF'
 # If not running interactively, don't do anything
 [[ $- != *i* ]] && return
 
@@ -54,8 +73,9 @@ fi
 
 EOF
 
-echo "✓ Created .zshrc with Omarchy zsh configuration"
-echo ""
+    echo "✓ Created .zshrc with Omarchy zsh configuration"
+    echo ""
+fi
 
 # Ask user if they want bash to auto-launch zsh
 echo "Would you like bash to automatically launch zsh in interactive terminals?"
