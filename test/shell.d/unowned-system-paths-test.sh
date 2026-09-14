@@ -30,11 +30,10 @@ allowed = {
   # Hardware-conditional sleep hooks, installed only on the machines that need
   # them so the hook does not exist where it does not apply.
   "/usr/lib/systemd/system-sleep",
-  # Written through a variable, so the scan below cannot see them at the point
-  # they are written. Both drop configuration into another project's tree rather
-  # than Omarchy's, which is why neither is a candidate for omarchy-settings.
+  # Written through a variable, so the scan below cannot see it at the point it
+  # is written. It drops configuration into another project's tree rather than
+  # Omarchy's, which is why it is not a candidate for omarchy-settings.
   "/usr/share/chromium/extensions",
-  "/usr/lib/firefox/distribution",
   # Static content that belongs in omarchy-settings. It cannot move there in the
   # same release that first ships omarchy-update-system-pkgs-when-conflicted: the
   # upgrade carrying the handler is the one that would hit the conflict, and the

@@ -1,58 +1,36 @@
 #!/bin/bash
 
 # omarchy:summary=Remove a supported browser and clean up Omarchy browser defaults
-# omarchy:args=<brave|brave-origin|firefox|zen>
+# omarchy:args=<chromium|chrome|brave|firefox|zen>
 # omarchy:examples=omarchy remove browser firefox | omarchy remove browser brave
-# omarchy:requires-sudo=true
 
 set_fallback_default_browser() {
-  local current_browser
-  current_browser=$(env -u BROWSER xdg-settings get default-web-browser)
+  local removed_desktop="$1"
+  local current
+  current=$(env -u BROWSER xdg-settings get default-web-browser)
 
-  if [[ $current_browser != $1 ]]; then
+  if [[ $current != "$removed_desktop" ]]; then
     return
   fi
 
-  if omarchy-cmd-present chromium; then
-    env -u BROWSER xdg-settings set default-web-browser chromium.desktop || true
+  if omarchy-flatpak-present org.chromium.Chromium; then
+    env -u BROWSER xdg-settings set default-web-browser org.chromium.Chromium.desktop || true
   fi
 }
 
 case $1 in
-brave)
-  echo "Removing Brave..."
-  set_fallback_default_browser brave-browser.desktop
-  omarchy-pkg-drop brave-browser
-  rm -f ~/.config/brave-flags.conf
-
-  if omarchy-pkg-missing brave-origin; then
-    sudo rm -rf /etc/brave
-  fi
-  ;;
-brave-origin)
-  echo "Removing Brave Origin..."
-  set_fallback_default_browser brave-origin.desktop
-  omarchy-pkg-drop brave-origin
-  rm -f ~/.config/brave-origin-flags.conf
-
-  if omarchy-pkg-missing brave-browser; then
-    sudo rm -rf /etc/brave
-  fi
-  ;;
-firefox)
-  echo "Removing Firefox..."
-  set_fallback_default_browser firefox.desktop
-  omarchy-pkg-drop firefox
-  ;;
-zen)
-  echo "Removing Zen..."
-  set_fallback_default_browser zen.desktop
-  # Zen is unpacked into /opt rather than installed as a package, so there is nothing for dnf to drop.
-  sudo rm -rf /opt/zen
-  sudo rm -f /usr/local/bin/zen /usr/share/applications/zen.desktop
-  ;;
+chromium) appid="org.chromium.Chromium"; name="Chromium" ;;
+chrome) appid="com.google.Chrome"; name="Chrome" ;;
+brave) appid="com.brave.Browser"; name="Brave" ;;
+firefox) appid="org.mozilla.firefox"; name="Firefox" ;;
+zen) appid="app.zen_browser.zen"; name="Zen" ;;
 *)
-  echo "Usage: omarchy-remove-browser <brave|brave-origin|firefox|zen>"
+  echo "Usage: omarchy-remove-browser <chromium|chrome|brave|firefox|zen>"
   exit 1
   ;;
 esac
+
+echo "Removing $name..."
+set_fallback_default_browser "$appid.desktop"
+# Browsers are installed per-user (see omarchy-install-browser); drop the app and its data.
+flatpak uninstall -y --user --delete-data "$appid"

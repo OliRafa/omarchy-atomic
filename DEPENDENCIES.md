@@ -72,13 +72,10 @@ lists both as dead repos so upgrades remove them from existing installs.
 | Repository | Provides | Added by |
 |---|---|---|
 | [`repo.nordvpn.com`](https://repo.nordvpn.com/yum/nordvpn/centos/) | `nordvpn` | `omarchy-install-service-nordvpn` |
-| [`brave-browser-rpm-release.s3.brave.com`](https://brave-browser-rpm-release.s3.brave.com/) | `brave-browser`, `brave-origin` | `omarchy-install-browser brave` / `brave-origin` |
 
-Brave's own repository is where the fork gets both browsers; upstream installs `brave-bin` and
-`brave-origin-bin` from the AUR, which does not exist here. The key is imported with `rpm --import`
-before the repo file is written, so `gpgcheck` stays on. Note that the package is named
-`brave-origin` here, not the `brave-origin-bin` upstream renamed to - and it is already the stable
-release, so upstream's beta-to-stable migration is a no-op on Fedora.
+Browsers no longer use a vendor repo: `omarchy-install-browser` installs every browser (Chromium,
+Chrome, Brave, Firefox, Zen) as a Flatpak from Flathub, so there is no Brave RPM repository to add.
+Chromium is the shipped default, delivered through the Flatpak preinstall manifest.
 
 Not a COPR and not enabled by default: nothing installs it until the user picks NordVPN from the
 menu. NordVPN supports Fedora 32+ officially and publishes aarch64 builds. Their documented method

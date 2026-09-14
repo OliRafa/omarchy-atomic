@@ -2,7 +2,7 @@
 
 Omarchy ships with [Chromium](https://www.chromium.org/) as the default browser. It's the plain open-source build, themed to match the rest of your system, and it's what `Super + Shift + Return` opens and what every [web app](25-web-apps.md) runs inside.
 
-If Chromium isn't your taste, you're not stuck with it. Under _Install > Browser_ in the Omarchy menu you'll find Chrome, Edge, Brave, Brave Origin, Firefox, and [Zen](https://zen-browser.app/). Pick one and Omarchy installs it, sets up its policy directory, and applies your current theme to it.
+If Chromium isn't your taste, you're not stuck with it. Under _Install > Browser_ in the Omarchy menu you'll find Chrome, Brave, Firefox, and [Zen](https://zen-browser.app/). Pick one and Omarchy installs it — every browser comes from [Flathub](https://flathub.org/) as a Flatpak, just like Chromium itself. For the Chromium-family browsers it also applies your current theme.
 
 ## Making one the default
 
@@ -30,7 +30,7 @@ These are Chromium-family only. Firefox and Zen don't get them.
 
 ## Firefox and Zen
 
-Firefox and Zen are a different family, so they get different treatment: Omarchy installs a policies file for sensible defaults and switches them into native Wayland mode, which you want for fractional scaling and smooth trackpad scrolling.
+Firefox and Zen are a different family. Their Flatpaks already run natively on Wayland — which is what you want for fractional scaling and smooth trackpad scrolling — so there's nothing extra to switch on.
 
 They don't get the Chromium extensions above, and they're not themed by Omarchy, so those parts of the experience are yours to set up.
 

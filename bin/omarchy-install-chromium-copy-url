@@ -8,6 +8,7 @@ HOST_NAME="com.omarchy.copy_url"
 HOST_PATH="$OMARCHY_PATH/bin/omarchy-chromium-copy-url-host"
 TEMPLATE="$OMARCHY_PATH/default/chromium/native-messaging-hosts/$HOST_NAME.json"
 
+# Native profile roots plus the Flatpak browsers' per-app config trees (same layout).
 browser_dirs=(
   "$HOME/.config/chromium"
   "$HOME/.config/google-chrome"
@@ -18,6 +19,9 @@ browser_dirs=(
   "$HOME/.config/BraveSoftware/Brave-Browser-Nightly"
   "$HOME/.config/microsoft-edge"
   "$HOME/.config/microsoft-edge-dev"
+  "$HOME/.var/app/org.chromium.Chromium/config/chromium"
+  "$HOME/.var/app/com.google.Chrome/config/google-chrome"
+  "$HOME/.var/app/com.brave.Browser/config/BraveSoftware/Brave-Browser"
 )
 
 manifest=$(sed "s|__HOST_PATH__|$HOST_PATH|g" "$TEMPLATE")

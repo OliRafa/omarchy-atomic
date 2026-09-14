@@ -1,0 +1,11 @@
+#!/bin/bash
+
+# omarchy:summary=Returns true if all of the named Flatpak apps are installed (user or system).
+# omarchy:args=<app-ids...>
+# omarchy:hidden=true
+
+for app in "$@"; do
+  flatpak info "$app" &>/dev/null || exit 1
+done
+
+exit 0
