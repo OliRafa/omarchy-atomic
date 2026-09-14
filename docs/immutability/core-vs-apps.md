@@ -22,7 +22,9 @@ yt-dlp) → **brew**, resolved via PATH.
 
 ## Decisions (2026-09-05)
 
-- **chromium → out** (Flatpak browser; user default = Brave).
+- **chromium → out** (Flatpak browser; Chromium is the shipped default via `org.chromium.Chromium`).
+  The base image also ships Firefox natively; it is removed in `images/core/Containerfile` (step 3a)
+  since the browser now comes from Flatpak. Brave/Chrome/Firefox/Zen are opt-in Flatpak installs.
 - **lightweight default apps → out**: evince (→ `org.gnome.Evince`), imv (→ `org.gnome.Loupe`),
   gnome-calculator. `nautilus`, `mpv`/`mpv-mpris`, `gnome-disk-utility` kept native in core
   after verification — see Open items.
@@ -41,7 +43,7 @@ Some "moved" binaries are invoked by Omarchy scripts/config (ref counts from a g
 
 | Binary | Where it's used | Resolution |
 |--------|-----------------|-----------|
-| chromium/brave (20/8) | `bin/omarchy-launch-webapp`, `mimeapps.list` http(s) | **DONE** — launch-webapp made flatpak-aware (flatpak export dirs + `com.brave.Browser.desktop`/`org.chromium.Chromium.desktop` + `flatpak run <appid> --app`); http(s) default → `com.brave.Browser.desktop` |
+| chromium/brave (20/8) | `bin/omarchy-launch-webapp`, `bin/omarchy-launch-browser`, `mimeapps.list` http(s) | **DONE** — launch-webapp and launch-browser are flatpak-aware (flatpak export dirs + `org.chromium.Chromium.desktop` + `flatpak run <appid>`); http(s) default → `org.chromium.Chromium.desktop`; install/remove/default scripts install the Flatpak of each browser |
 | imv (3) | `mimeapps.list`, `hypr/apps/system.lua`, `omarchy-plymouth-preview` | **DONE** — image mimes → `org.gnome.Loupe.desktop`; window rules add `org.gnome.Loupe`; preview uses `xdg-open` |
 | mpv (7) | capture / screenrecord / ytdlp-host, `mimeapps.list` video | **KEPT CORE** — v4l2 webcam overlay breaks under Flatpak sandbox; no repoint |
 | nautilus (10) | launch-nautilus(-cwd), theme-bg-install, retroarch, `mimeapps.list` dir | **KEPT CORE** — not on Flathub (404) + native-binary launched |

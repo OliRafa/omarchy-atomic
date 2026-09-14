@@ -52,15 +52,15 @@ pick_default_desktop() {
   fi
 
   for candidate in \
-    com.brave.Browser.desktop \
     org.chromium.Chromium.desktop \
+    com.brave.Browser.desktop \
+    com.google.Chrome.desktop \
+    org.mozilla.firefox.desktop \
+    app.zen_browser.zen.desktop \
     chromium-browser.desktop \
     chromium.desktop \
     google-chrome.desktop \
     brave-browser.desktop \
-    microsoft-edge.desktop \
-    vivaldi-stable.desktop \
-    org.mozilla.firefox.desktop \
     firefox.desktop; do
     if resolve_desktop_file "$candidate" >/dev/null; then
       printf "%s\n" "$candidate"
@@ -74,7 +74,7 @@ pick_default_desktop() {
 pick_chromium_desktop() {
   local candidate
 
-  for candidate in com.brave.Browser.desktop org.chromium.Chromium.desktop chromium-browser.desktop chromium.desktop google-chrome.desktop brave-browser.desktop microsoft-edge.desktop vivaldi-stable.desktop; do
+  for candidate in org.chromium.Chromium.desktop com.brave.Browser.desktop com.google.Chrome.desktop chromium-browser.desktop chromium.desktop google-chrome.desktop brave-browser.desktop; do
     if resolve_desktop_file "$candidate" >/dev/null; then
       printf "%s\n" "$candidate"
       return 0
@@ -104,7 +104,7 @@ if [[ "$(basename -- "$browser_exec")" == "flatpak" && -n "$launch_desktop" ]]; 
   appid="${launch_desktop%.desktop}"
   if [[ "$launch_desktop" == "$chromium_desktop" ]]; then
     exec setsid uwsm-app -- flatpak run "$appid" --new-window --app="$url" "$@"
-  elif [[ "$appid" =~ [Ff]irefox ]]; then
+  elif [[ "$appid" =~ [Ff]irefox || "$appid" =~ [Zz]en ]]; then
     exec setsid uwsm-app -- flatpak run "$appid" --new-window "$url" "$@"
   else
     exec setsid uwsm-app -- flatpak run "$appid" "$url" "$@"

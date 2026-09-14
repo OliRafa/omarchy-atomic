@@ -59,6 +59,18 @@ RUN retry() { n=1; while ! "$@"; do [ "$n" -ge 5 ] && return 1; echo "[dnf-retry
  && dnf clean all \
  && rm -f /tmp/core.packages
 
+# 3a) Drop the browser inherited from the base image. Fedora Asahi Remix's base-atomic ships
+#     Firefox (firefox + firefox-langpacks), but Omarchy delivers its browser as a Flatpak — Chromium
+#     is the shipped default (usr/share/flatpak/preinstall.d/omarchy-atomic.preinstall) and mimeapps
+#     points http(s) at it. The native Firefox is then dead weight and a second, unthemed browser, so
+#     remove it. Best-effort: if a dependency ever holds it, log and continue (the Flatpak default is
+#     authoritative), mirroring step 3b's approach to the base's unused tooling.
+RUN { dnf -y remove firefox firefox-langpacks 2>/dev/null || true; } \
+ && for p in firefox firefox-langpacks; do \
+      rpm -q "$p" >/dev/null 2>&1 && echo "[3a] KEPT (held by a dependency): $p" || echo "[3a] removed: $p"; \
+    done \
+ && dnf clean all
+
 # 3b) Bootloader: systemd-boot; drop the tooling we don't use.
 #     - bootc selects systemd-boot when bootupd is ABSENT (and we pass --bootloader systemd at
 #       install). bootupd manages GRUB/shim only — never systemd-boot — so it's unused here.

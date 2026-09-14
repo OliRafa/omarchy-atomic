@@ -167,9 +167,9 @@ grep -q 'PATH}:.*HOMEBREW_PREFIX' /etc/profile.d/brew.sh 2>/dev/null \
 [ -e /etc/profile.d/omarchy-brew.sh ] && no "the superseded omarchy-brew.sh is still shipped" \
   || ok "the superseded omarchy-brew.sh is gone"
 
-echo "== mimeapps repoints (browser=Brave, images=Loupe) =="
+echo "== mimeapps repoints (browser=Chromium, images=Loupe) =="
 mimes=/usr/share/omarchy/default/applications/mimeapps.list
-grep -q 'com.brave.Browser.desktop' "$mimes" 2>/dev/null && ok "http(s) -> Brave" || no "browser mime not repointed"
+grep -q 'org.chromium.Chromium.desktop' "$mimes" 2>/dev/null && ok "http(s) -> Chromium" || no "browser mime not repointed"
 grep -q 'org.gnome.Loupe.desktop'   "$mimes" 2>/dev/null && ok "images -> Loupe"  || no "image mime not repointed"
 
 echo "== Asahi m1n1 / devicetree (atomic) =="

@@ -4,9 +4,11 @@
 # omarchy:args=[url]
 desktop_paths=(
   "$HOME/.local/share/applications"
+  "$HOME/.local/share/flatpak/exports/share/applications"
   "$HOME/.nix-profile/share/applications"
   "/usr/local/share/applications"
   "/usr/share/applications"
+  "/var/lib/flatpak/exports/share/applications"
 )
 
 resolve_desktop_file() {
@@ -45,13 +47,15 @@ pick_desktop_id() {
   fi
 
   for candidate in \
+    org.chromium.Chromium.desktop \
+    com.brave.Browser.desktop \
+    com.google.Chrome.desktop \
+    org.mozilla.firefox.desktop \
+    app.zen_browser.zen.desktop \
     chromium-browser.desktop \
     chromium.desktop \
     google-chrome.desktop \
     brave-browser.desktop \
-    microsoft-edge.desktop \
-    vivaldi-stable.desktop \
-    org.mozilla.firefox.desktop \
     firefox.desktop; do
     if resolve_desktop_file "$candidate" >/dev/null; then
       printf "%s\n" "$candidate"
@@ -60,6 +64,14 @@ pick_desktop_id() {
   done
 
   return 1
+}
+
+private_flag_for() {
+  # Firefox-family browsers use --private-window; Chromium-family use --incognito.
+  case "$1" in
+  *[Ff]irefox* | *[Zz]en*) printf "%s\n" "--private-window" ;;
+  *) printf "%s\n" "--incognito" ;;
+  esac
 }
 
 want_private=false
@@ -78,8 +90,18 @@ if [[ -n "$desktop_id" ]]; then
   browser_exec="$(resolve_exec "$desktop_id" 2>/dev/null || true)"
 fi
 
+# Flatpak browsers resolve Exec to `flatpak run <app-id> ...`; the app-id is the desktop-file
+# stem. Launch through flatpak directly, otherwise our flags would be handed to flatpak itself.
+if [[ "$(basename -- "$browser_exec")" == "flatpak" && -n "$desktop_id" ]]; then
+  appid="${desktop_id%.desktop}"
+  if [[ "$want_private" == true ]]; then
+    pass_args=("$(private_flag_for "$appid")" "${pass_args[@]}")
+  fi
+  exec setsid uwsm-app -- flatpak run "$appid" "${pass_args[@]}"
+fi
+
 if [[ -z "$browser_exec" ]]; then
-  for candidate in chromium-browser chromium firefox google-chrome brave-browser microsoft-edge vivaldi; do
+  for candidate in chromium-browser chromium firefox google-chrome brave-browser; do
     if command -v "$candidate" >/dev/null 2>&1; then
       browser_exec="$candidate"
       break
@@ -88,20 +110,16 @@ if [[ -z "$browser_exec" ]]; then
 fi
 
 if [[ -z "$browser_exec" ]]; then
-  notify-send "Browser" "No supported browser found. Install Firefox or Chromium."
+  notify-send "Browser" "No supported browser found. Install one from Install > Browser."
   exit 1
 fi
 
-if $browser_exec --help | grep -q MOZ_LOG; then
-  private_flag="--private-window"
-elif [[ $browser_exec =~ edge ]]; then
-  private_flag="--inprivate"
-else
-  private_flag="--incognito"
-fi
-
 if [[ "$want_private" == true ]]; then
-  pass_args=("$private_flag" "${pass_args[@]}")
+  if $browser_exec --help 2>/dev/null | grep -q MOZ_LOG; then
+    pass_args=("--private-window" "${pass_args[@]}")
+  else
+    pass_args=("--incognito" "${pass_args[@]}")
+  fi
 fi
 
 exec setsid uwsm-app -- "$browser_exec" "${pass_args[@]}"
