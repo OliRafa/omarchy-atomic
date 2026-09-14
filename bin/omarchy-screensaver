@@ -6,22 +6,26 @@ screensaver_in_focus() {
   hyprctl activewindow -j | jq -e '.class == "org.omarchy.screensaver"' >/dev/null 2>&1
 }
 
-exit_screensaver() {
+restore_cursor() {
   hyprctl eval 'hl.config({ cursor = { invisible = false } })' &>/dev/null || hyprctl keyword cursor:invisible false &>/dev/null || true
+}
+
+exit_screensaver() {
+  restore_cursor
   pkill -x tte 2>/dev/null
   pkill -f '[o]rg.omarchy.screensaver' 2>/dev/null
   exit 0
 }
 
-# Exit the screensaver on signals and input from keyboard and mouse
+# Restore the cursor on ANY exit, and stop the screensaver on signals and input from keyboard/mouse.
+# The cursor is hidden further down; a hidden cursor that never returns is the worst failure this
+# screensaver can cause, so the EXIT trap guarantees it comes back however we leave.
+trap restore_cursor EXIT
 trap exit_screensaver SIGINT SIGTERM SIGHUP SIGQUIT
 
-printf '\033]11;rgb:00/00/00\007'  # Set background color to black
-
-hyprctl eval 'hl.config({ cursor = { invisible = true } })' &>/dev/null || hyprctl keyword cursor:invisible true &>/dev/null
-
-tty=$(tty 2>/dev/null)
-
+# Confirm tte is available BEFORE hiding the cursor. tte is PyPI-only and can be absent; hiding the
+# pointer and only then discovering tte is missing is exactly what stranded the cursor on machines
+# without it.
 if ! command -v tte >/dev/null 2>&1; then
   if [[ -x "$HOME/.local/bin/tte" ]]; then
     export PATH="$HOME/.local/bin:$PATH"
@@ -30,6 +34,12 @@ if ! command -v tte >/dev/null 2>&1; then
     exit 1
   fi
 fi
+
+printf '\033]11;rgb:00/00/00\007'  # Set background color to black
+
+hyprctl eval 'hl.config({ cursor = { invisible = true } })' &>/dev/null || hyprctl keyword cursor:invisible true &>/dev/null
+
+tty=$(tty 2>/dev/null)
 
 while true; do
   tte -i ~/.config/omarchy/branding/screensaver.txt \

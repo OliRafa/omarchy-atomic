@@ -132,6 +132,19 @@ RUN set -eux; \
       || { echo "[3c] rebuilt initramfs lacks bootc-root-setup.service"; exit 1; }; \
     echo "[3c] initramfs carries bootc composefs root setup"
 
+# 3d) terminaltexteffects (tte) — the engine the Omarchy screensaver renders with (bin/omarchy-screensaver,
+#     triggered by the shell's idle timer in config/omarchy/shell.json). It is PyPI-only: not packaged
+#     by Fedora and no brew formula, so a Fedora image never had it, and the screensaver would hide the
+#     cursor and then bail because tte was missing. Install it into an isolated venv under /usr and
+#     expose the `tte` console script on PATH. A venv sidesteps PEP 668 (Fedora marks the system Python
+#     externally-managed) and never touches dnf's site-packages; tte has no runtime deps, so the venv
+#     holds only tte. Smoke-run --help so a broken install fails the build.
+RUN python3 -m venv /usr/lib/omarchy-tte \
+ && /usr/lib/omarchy-tte/bin/pip install --no-cache-dir terminaltexteffects \
+ && ln -sf /usr/lib/omarchy-tte/bin/tte /usr/bin/tte \
+ && /usr/bin/tte --help >/dev/null \
+ && echo "[3d] tte installed: $(/usr/bin/tte --version 2>&1 || true)"
+
 # 4) The Omarchy tree + system hooks. bin/* is symlinked into /usr/bin (immutable /usr,
 #    the bootc-correct location) so omarchy-* commands resolve in every context.
 COPY . ${OMARCHY_PREFIX}

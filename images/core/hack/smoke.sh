@@ -83,6 +83,12 @@ for p in nautilus mpv gnome-disk-utility; do
   rpm -q "$p" >/dev/null 2>&1 && ok "$p" || no "$p missing from core"
 done
 
+echo "== screensaver engine (tte) =="
+# tte is PyPI-only (no Fedora package / no brew formula); without it omarchy-screensaver has nothing
+# to render. Assert both the console script on PATH and that it actually runs (venv wired correctly).
+command -v tte >/dev/null 2>&1 && tte --help >/dev/null 2>&1 \
+  && ok "tte present and runnable" || no "tte missing or broken (screensaver would not render)"
+
 echo "== omarchy tree + commands on PATH =="
 [ -d /usr/share/omarchy/bin ] && ok "/usr/share/omarchy tree present" || no "omarchy tree missing"
 [ -L /usr/bin/omarchy ] && ok "omarchy symlinked into /usr/bin" || no "omarchy not symlinked into /usr/bin"
