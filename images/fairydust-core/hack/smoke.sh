@@ -57,7 +57,9 @@ if command -v file >/dev/null 2>&1; then
 fi
 
 echo "== Apple devicetrees shipped with the kernel =="
-dtbn=$(find "/usr/lib/modules/$kver/dtb" -name 'apple*.dtb' 2>/dev/null | wc -l)
+# Apple Silicon DTB filenames are SoC-coded (t8103-*.dtb, t6000-*.dtb, ...), not "apple*"; the dtb
+# dir holds only the Apple DTBs we install (arch/arm64/boot/dts/apple/*.dtb), so count all *.dtb.
+dtbn=$(find "/usr/lib/modules/$kver/dtb" -name '*.dtb' 2>/dev/null | wc -l)
 [ "$dtbn" -gt 0 ] && ok "$dtbn Apple DTBs under modules/$kver/dtb" || no "no Apple DTBs — update-m1n1 would boot stale devicetree"
 
 echo "== composefs initramfs rebuilt against the fairydust kernel =="
