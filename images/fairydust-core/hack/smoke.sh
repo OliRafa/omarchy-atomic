@@ -57,10 +57,13 @@ if command -v file >/dev/null 2>&1; then
 fi
 
 echo "== Apple devicetrees shipped with the kernel =="
-# Apple Silicon DTB filenames are SoC-coded (t8103-*.dtb, t6000-*.dtb, ...), not "apple*"; the dtb
-# dir holds only the Apple DTBs we install (arch/arm64/boot/dts/apple/*.dtb), so count all *.dtb.
-dtbn=$(find "/usr/lib/modules/$kver/dtb" -name '*.dtb' 2>/dev/null | wc -l)
-[ "$dtbn" -gt 0 ] && ok "$dtbn Apple DTBs under modules/$kver/dtb" || no "no Apple DTBs — update-m1n1 would boot stale devicetree"
+# Must be under dtb/apple/ specifically — update-m1n1 globs $DTBS/apple/*.dtb (DTBS=modules/<kver>/dtb),
+# matching Fedora kernel-16k's dtbs_install layout. A flat dtb/ passes a naive recursive *.dtb count
+# but makes update-m1n1 find nothing and skip the devicetree (fairydust DP-alt never goes live), so
+# assert the exact path here, not just "some .dtb somewhere". Filenames are SoC-coded (t8103-*, etc).
+dtbn=$(find "/usr/lib/modules/$kver/dtb/apple" -maxdepth 1 -name '*.dtb' 2>/dev/null | wc -l)
+[ "$dtbn" -gt 0 ] && ok "$dtbn Apple DTBs under modules/$kver/dtb/apple (update-m1n1 path)" \
+  || no "no DTBs under dtb/apple/ — update-m1n1 finds nothing and skips the fairydust devicetree"
 
 echo "== composefs initramfs rebuilt against the fairydust kernel =="
 # Same assertion as core: the boot entry's initrd must carry bootc's composefs root pivot, or a
