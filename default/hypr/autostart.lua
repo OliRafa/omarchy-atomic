@@ -9,7 +9,10 @@ hl.on("hyprland.start", function()
   -- the shell lock instead, the way the pre-quattro hyprlock flow worked.
   -- The script polls the shell's IPC until the lock is up.
   hl.exec_cmd("omarchy-system-lock-boot")
-  hl.exec_cmd(o.launch("fcitx5 --disable notificationitem"))
+  -- fcitx5 is launched and supervised by omarchy-fcitx5.service (see commit 6e07fd0e), NOT here.
+  -- A direct launch owns org.fcitx.Fcitx5, so the unit's instance exits on arrival and thrashes
+  -- into start-limit-hit ("Failed unit detected: omarchy-fcitx5.service"). This line was removed in
+  -- 6e07fd0e and re-introduced by an upstream merge; do not add it back.
   hl.exec_cmd("omarchy-provision-first-run")
   hl.exec_cmd("omarchy-powerprofiles-init")
   hl.exec_cmd(o.launch("omarchy-hyprland-monitor-watch"))
