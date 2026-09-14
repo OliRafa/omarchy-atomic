@@ -46,9 +46,10 @@ yaru-gtk3-theme
 yaru-gtk4-theme
 yaru-gtksourceview-theme
 
-# --- Terminals (DE-integral, launched by keybindings) ---
+# --- Terminal (DE-integral, launched by keybindings): foot is the shipped default and the only
+#     always-present terminal. kitty is an opt-in Homebrew install; alacritty/ghostty are not on
+#     Flathub or Homebrew for Linux, so users install those themselves (see manual/15-terminal.md). ---
 xdg-terminal-exec
-alacritty
 foot
 
 # --- Shell & CLI: only tools wired into always-loaded config/menus stay core ---

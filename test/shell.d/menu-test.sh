@@ -249,7 +249,7 @@ assertDeepEqual(
 )
 const expectedDefaults = {
   browser: ['Chromium', 'Chrome', 'Brave', 'Firefox', 'Zen'],
-  terminal: ['Alacritty', 'Foot', 'Ghostty', 'Kitty'],
+  terminal: ['Foot', 'Kitty'],
   editor: ['Neovim', 'VSCode', 'Cursor', 'Zed', 'Sublime Text', 'Helix', 'Vim', 'Emacs']
 }
 assert(
