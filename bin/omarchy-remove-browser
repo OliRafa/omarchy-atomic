@@ -13,7 +13,9 @@ set_fallback_default_browser() {
     return
   fi
 
-  if omarchy-flatpak-present org.chromium.Chromium; then
+  # Fall back to Chromium - unless Chromium itself is the browser being removed, which would
+  # leave the default pointing at a desktop file we are about to uninstall.
+  if [[ $removed_desktop != "org.chromium.Chromium.desktop" ]] && omarchy-flatpak-present org.chromium.Chromium; then
     env -u BROWSER xdg-settings set default-web-browser org.chromium.Chromium.desktop || true
   fi
 }

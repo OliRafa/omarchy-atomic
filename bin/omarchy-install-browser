@@ -7,6 +7,16 @@
 install_flatpak_browser() {
   # Browsers install per-user from Flathub, so no privilege escalation is needed. The
   # system-wide Chromium baked into the image is still seen by `flatpak info`/`omarchy-flatpak-present`.
+  #
+  # The image registers Flathub only as a SYSTEM remote, and a `--user` install by remote name
+  # cannot resolve a system-only remote, so add a user-scoped Flathub first. Prefer the repo file
+  # the image bakes (offline); fall back to Flathub over the network on non-atomic installs.
+  if [[ -f /etc/flatpak/remotes.d/flathub.flatpakrepo ]]; then
+    flatpak remote-add --user --if-not-exists flathub /etc/flatpak/remotes.d/flathub.flatpakrepo
+  else
+    flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+  fi
+
   flatpak install -y --user flathub "$1"
 }
 
