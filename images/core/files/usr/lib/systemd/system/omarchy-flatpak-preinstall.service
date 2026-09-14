@@ -27,9 +27,14 @@ RemainAfterExit=yes
 # /var/lib/flatpak, and our composefs-native image ships a FRESH /var seeded only on first boot, so a
 # build-time remote would not survive to here. Reading a file baked into /etc does, and needs no DNS.
 ExecStartPre=/usr/bin/flatpak remote-add --system --if-not-exists flathub /etc/flatpak/remotes.d/flathub.flatpakrepo
+# Wrap in dbus-run-session: `flatpak preinstall` needs a D-Bus SESSION bus (it activates the OCI
+# authenticator), and a system service has none — without one it dies instantly with "Cannot
+# autolaunch D-Bus without X11 $DISPLAY" and installs nothing. dbus-run-session gives it a throwaway
+# session bus; flatpak still reaches the privileged install helper over the system bus as normal.
+# (remote-add above needs no session bus, so it is left unwrapped.)
 # No stamp and run on every boot on purpose: `flatpak preinstall` is a fast no-op once satisfied, it
 # applies later additions to the app set, and it honours apps the user has since removed.
-ExecStart=/usr/bin/flatpak preinstall -y --noninteractive
+ExecStart=/usr/bin/dbus-run-session -- /usr/bin/flatpak preinstall -y --noninteractive
 # The pulls need the network, which is masked out of network-online.target here. When a pull fails
 # `flatpak preinstall` exits non-zero and systemd re-runs this in 30s — out of the boot path, no
 # reboot required. It stops of its own accord once every app is present (a clean exit is not

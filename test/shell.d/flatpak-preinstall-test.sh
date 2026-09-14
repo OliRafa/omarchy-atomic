@@ -80,10 +80,20 @@ grep -qE '^ExecStartPre=.*remote-add .*http' "$unit" &&
   fail "the remote must not be fetched over the network at boot" "$(grep -n Exec "$unit")"
 pass "the remote is registered from the baked local file before preinstall runs"
 
-# The install itself is delegated to the upstream CLI, not a hand-rolled loop.
-grep -qE '^ExecStart=/usr/bin/flatpak preinstall .*-y' "$unit" ||
-  fail "the install is delegated to upstream 'flatpak preinstall -y'" "$(grep -n Exec "$unit")"
-pass "the install is delegated to upstream 'flatpak preinstall'"
+# The install itself is delegated to the upstream CLI, not a hand-rolled loop — and it MUST run under
+# a D-Bus session bus. `flatpak preinstall` activates the OCI authenticator over the session bus; a
+# system service has none, so without dbus-run-session it dies instantly with "Cannot autolaunch
+# D-Bus without X11 $DISPLAY" and installs nothing. This is the exact failure seen on real hardware
+# after the first release, invisible to CI (the e2e job does not run first-boot services).
+grep -qE '^ExecStart=/usr/bin/dbus-run-session -- /usr/bin/flatpak preinstall .*-y' "$unit" ||
+  fail "preinstall runs under dbus-run-session (needs a D-Bus session bus)" "$(grep -n Exec "$unit")"
+pass "the install is delegated to upstream 'flatpak preinstall', under a D-Bus session bus"
+
+# remote-add does NOT need the session bus (proven on hardware: its ExecStartPre succeeds), so it
+# must stay unwrapped — wrapping it would only add a spurious dependency.
+grep -qE '^ExecStartPre=/usr/bin/flatpak remote-add' "$unit" ||
+  fail "remote-add runs directly (no session bus needed)" "$(grep -n Exec "$unit")"
+pass "remote-add runs directly, without dbus-run-session"
 
 # No stamp of our own: preinstall must run every boot so later additions apply and user removals
 # stick (both are the CLI's job). A stamp would freeze the set at first boot. Comments are excluded —
@@ -125,9 +135,9 @@ update_timer="$ROOT/images/core/files/usr/lib/systemd/system/omarchy-flatpak-upd
 [[ -f $update_timer ]] || fail "the flatpak update timer ships"
 pass "the flatpak update service and timer ship"
 
-grep -qE '^ExecStart=/usr/bin/flatpak update --system' "$update_service" ||
-  fail "the update service updates the SYSTEM installation (where preinstall put the apps)" "$(grep -n Exec "$update_service")"
-pass "the update service updates the system installation"
+grep -qE '^ExecStart=/usr/bin/dbus-run-session -- /usr/bin/flatpak update --system' "$update_service" ||
+  fail "the update service updates the SYSTEM installation under dbus-run-session" "$(grep -n Exec "$update_service")"
+pass "the update service updates the system installation, under a D-Bus session bus"
 
 # Metered connections must be spared, or a hotspot gets drained — the guard ublue/bluefin both use.
 grep -qE '^ExecCondition=.*Metered' "$update_service" ||
