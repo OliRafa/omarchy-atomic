@@ -54,7 +54,9 @@ jobs:
       - name: Install test dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y jq ripgrep python3 lua5.4 imagemagick plocate
+          sudo apt-get install -y jq ripgrep python3 lua5.4 imagemagick plocate ffmpeg desktop-file-utils
+          # xkbcli (keybinding-menu test); package name varies across releases, so best-effort.
+          sudo apt-get install -y libxkbcommon-tools || true
           # Tests invoke `lua` and `magick`; Ubuntu ships the versioned lua binary and,
           # on IM6, only `convert`. Provide the names the suite expects.
           sudo ln -sf /usr/bin/lua5.4 /usr/local/bin/lua
