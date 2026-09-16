@@ -23,8 +23,8 @@ done < <(grep -oE '^[[:space:]]*(sudo[[:space:]]+)?omarchy-[a-z0-9-]+' "$install
   grep -oE 'omarchy-[a-z0-9-]+' | sort -u)
 pass "the installer only calls commands that ship in bin/"
 
-grep -F 'sudo omarchy-apply-system --install-user "$USER" --first-install' "$install_script" >/dev/null ||
-  fail "the installer applies system setup as root for a first install"
+grep -F 'exec omarchy-apply-hardware --install-user "$3"' "$install_script" >/dev/null ||
+  fail "the installer applies hardware setup as root for a first install"
 grep -F 'omarchy-provision-user --first-install' "$install_script" >/dev/null ||
   fail "the installer finalizes the user for a first install"
 pass "the installer runs first-install system and user setup"

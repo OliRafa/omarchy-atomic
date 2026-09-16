@@ -24,6 +24,10 @@ unwired_leaves=(
   # install. Nothing on the Mac path disables them, so wiring it would only add
   # a redundant mkinitcpio -P.
   "login/enable-mkinitcpio.sh"
+  # nvidia-*/lib32-nvidia-* are AUR/DKMS packages excluded from the Fedora set
+  # (install/omarchy-other.packages.fedora); this fork uses nouveau instead, so
+  # nvidia.sh (mkinitcpio.conf.d + those packages) never runs on the Mac path.
+  "hardware/nvidia.sh"
 )
 
 leaf_is_known_unwired() {
