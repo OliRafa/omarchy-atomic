@@ -16,6 +16,13 @@
 # omarchy-apply-m1n1.service, which runs update-m1n1 from the new image's /usr. This wrapper
 # only guarantees the machine boots at all after reboot (restores the known-good boot.bin).
 #
+# This wrapper also GROWS the ESP before installing. The Asahi installer puts kernels on a separate
+# 1 GiB /boot that the composefs backend never uses, so an un-grown 500 MiB ESP installs fine and
+# then can never `bootc upgrade` (the second deployment's kernel doesn't fit — ENOSPC). It folds
+# that /boot in via omarchy-atomic-grow-esp. If the kernel can't adopt the new partition table
+# without a reboot, it stops and asks you to reboot and re-run this command — the grow resumes and
+# the install continues.
+#
 # USAGE (as root, on a Fedora Asahi aarch64 host — NOT your daily driver; test install):
 #   sudo deploy/omarchy-atomic-install ghcr.io/olirafa/omarchy-atomic:44
 set -euo pipefail
@@ -60,11 +67,93 @@ if [[ " $host_id $host_id_like " != *" fedora "* ]]; then
   exit 1
 fi
 
-# 1) Identify the OS ESP the way m1n1 does (authoritative), fall back to /boot/efi.
+# 1) Identify the OS ESP the way m1n1 does (authoritative), independent of any mount.
 esp_uuid="$(tr -d '\0' </proc/device-tree/chosen/asahi,efi-system-partition 2>/dev/null || true)"
 esp_dev="$(blkid -t "PARTUUID=$esp_uuid" -o device 2>/dev/null || true)"
-esp="$(findmnt -no TARGET "$esp_dev" 2>/dev/null || findmnt -no TARGET /boot/efi 2>/dev/null || echo /boot/efi)"
+[[ -n $esp_dev ]] || esp_dev="$(findmnt -no SOURCE /boot/efi 2>/dev/null || true)"
+
+# The rest of this wrapper reaches the ESP through a mount, but on the composefs layout the ESP is
+# normally mounted nowhere, and the grow step below unmounts it. So mount it on demand rather than
+# assuming /boot/efi, and unmount a mount we made on the way out.
+esp="" esp_tmp_mnt=""
+mount_os_esp() {
+  local m
+  m="$(findmnt -no TARGET "$esp_dev" 2>/dev/null | head -1 || true)"
+  if [[ -n $m ]]; then
+    esp="$m"
+  else
+    [[ -b $esp_dev ]] || { echo "no device node for the OS ESP (${esp_dev:-unknown}) — cannot continue" >&2; exit 1; }
+    esp_tmp_mnt="$(mktemp -d)"
+    mount "$esp_dev" "$esp_tmp_mnt" || { echo "could not mount the OS ESP $esp_dev" >&2; exit 1; }
+    esp="$esp_tmp_mnt"
+  fi
+}
+cleanup_esp_mount() {
+  [[ -n $esp_tmp_mnt ]] || return 0
+  sync
+  umount "$esp_tmp_mnt" 2>/dev/null || true
+  rmdir "$esp_tmp_mnt" 2>/dev/null || true
+}
+trap cleanup_esp_mount EXIT
+
+# 1b) Fold the unused /boot into the ESP so the composefs backend has room for TWO deployments'
+#     kernels. Without this every install succeeds and then can never `bootc upgrade` (ENOSPC); see
+#     deploy/lib/esp-capacity.sh. The Asahi installer puts kernels on a separate 1 GiB ext4 /boot
+#     that omarchy-atomic never uses, so it is exactly the space the ESP is missing and it sits
+#     directly after it. Every stock install needs this, so drive it here rather than leaving it a
+#     manual pre-step. All the dangerous work — GPT surgery with the ESP's PARTUUID preserved,
+#     backup/reformat/restore, boot-entry repair — lives in omarchy-atomic-grow-esp; this only picks
+#     the target and handles its "needs a reboot" outcome.
+grow_state="/var/tmp/omarchy-atomic-grow.absorb"
+absorb=""
+if [[ -e $grow_state ]]; then
+  # Resuming after grow-esp asked for a reboot: /boot is already gone from the table, so trust the
+  # target it recorded rather than looking for a partition that no longer exists.
+  absorb="$(< "$grow_state")"
+  echo "==> resuming a pending ESP grow (recorded target: $absorb)"
+else
+  boot_src="$(findmnt -no SOURCE /boot 2>/dev/null || true)"
+  if [[ -n $esp_dev && -n $boot_src && $boot_src != "$esp_dev" ]]; then
+    absorb="$boot_src"
+  fi
+fi
+
+if [[ -n $absorb ]]; then
+  # grow-esp needs the absorbed partition unmounted, and on a stock system the ESP is mounted UNDER
+  # it at /boot/efi — detach the whole /boot subtree first (that drops our ESP mount too; grow-esp
+  # remounts the ESP itself as it needs).
+  if findmnt -no TARGET /boot >/dev/null 2>&1; then
+    umount -R /boot || { echo "could not unmount /boot to fold it into the ESP — close anything using it" >&2; exit 1; }
+  fi
+
+  printf '%s\n' "$absorb" >"$grow_state"
+  echo "==> growing the OS ESP by absorbing $absorb (deploy/omarchy-atomic-grow-esp)"
+  set +e
+  "$_here/omarchy-atomic-grow-esp" --absorb "$absorb" --yes --backup-dir /var/tmp/asahi-esp-grow-backup
+  grow_rc=$?
+  set -e
+  case $grow_rc in
+    0) rm -f "$grow_state"; echo "==> ESP grown" ;;
+    2)
+      echo >&2
+      echo "The ESP table was rewritten but the kernel could not adopt it while the root filesystem" >&2
+      echo "  is mounted on the same disk. Nothing about the OS has been installed yet — reboot and" >&2
+      echo "  re-run this exact command; it resumes the grow and then installs:" >&2
+      echo "    sudo reboot" >&2
+      echo "    sudo $0 $IMAGE" >&2
+      exit 2 ;;
+    *)
+      echo "omarchy-atomic-grow-esp failed (exit $grow_rc) — refusing to install onto an ESP that is" >&2
+      echo "  too small to ever update. Nothing has been installed; any ESP backup is at" >&2
+      echo "  /var/tmp/asahi-esp-grow-backup." >&2
+      exit 1 ;;
+  esac
+fi
+
+# 1c) Mount the (now grown) OS ESP for the backup + install + restore below.
+mount_os_esp
 echo "==> OS ESP: $esp  (asahi,efi-system-partition=$esp_uuid, dev=${esp_dev:-?})"
+
 # Not a warning: bootc's --replace=alongside wipes the WHOLE ESP, and m1n1 stage 2 is what U-Boot
 # loads. Backing up an ESP that doesn't hold it leaves nothing to restore and the machine does not
 # come back. If this fires, $esp is probably not where the OS ESP is mounted.
