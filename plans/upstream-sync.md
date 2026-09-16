@@ -16,6 +16,8 @@ Bring the fork close to upstream `basecamp/omarchy` quattro. **Follow upstream o
 
 **Final commit** purges everything pacman-related (the machine has no pacman).
 
+**Testing runs on CI/CD only** — not locally. The CLI/shell suites (`./test/all`) run via `.github/workflows/tests.yml`, which currently lives on the `ci-test-suites` branch, not on `quattro`/this branch; `main.yml` on this branch only lints (shellcheck/shfmt) + smoke-runs. So getting suite results for this work needs `tests.yml` present on the branch plus a push/PR to `quattro`. Local `./test/*` runs are noisy anyway: a quattro baseline showed **40 pre-existing failures**, most environment-dependent (no `mise`, no sibling `omarchy-pkgs` checkout, no display for QML). Subtracting the baseline, the merge attributably added ~15 failures (several are new Arch tests → Phase 5; the rest are Fedora adaptations), plus one real regression: `runtime-smoke` widget IPC registration went 3→4. The duplicate-keybinding failure is pre-existing, not merge-caused.
+
 ## Conflict-resolution rule
 
 - Take upstream ("theirs") for features/hardening with no platform coupling.
