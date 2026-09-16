@@ -19,7 +19,7 @@ fi
 
 case "$COMMAND" in
 create)
-  DESC="omarchy-update"
+  DESC="$(omarchy-version)"
 
   echo -e "\e[32mCreate system snapshot\e[0m"
 
