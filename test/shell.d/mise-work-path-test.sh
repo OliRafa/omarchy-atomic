@@ -5,6 +5,11 @@ source "$(dirname "${BASH_SOURCE[0]}")/base-test.sh"
 
 require_command mise
 
+# The isolated env below resets PATH to keep the migration hermetic, but mise
+# itself must stay reachable. In CI mise lives outside /usr/bin (e.g. the runner's
+# tool cache), so add its actual directory rather than assuming a fixed location.
+mise_dir=$(dirname "$(command -v mise)")
+
 test_dir=$(mktemp -d)
 trap 'rm -rf "$test_dir"' EXIT
 migration="$ROOT/migrations/1789095456.sh"
@@ -19,7 +24,7 @@ run_migration() {
     XDG_DATA_HOME="$test_home/.local/share" \
     XDG_STATE_HOME="$test_home/.local/state" \
     MISE_PARANOID="${OMARCHY_TEST_MISE_PARANOID:-false}" \
-    PATH=/usr/bin \
+    PATH="$mise_dir:/usr/bin" \
     bash -euo pipefail "$migration"
 }
 
@@ -34,7 +39,7 @@ run_mise() {
     XDG_DATA_HOME="$test_home/.local/share" \
     XDG_STATE_HOME="$test_home/.local/state" \
     MISE_PARANOID="${OMARCHY_TEST_MISE_PARANOID:-false}" \
-    PATH=/usr/bin \
+    PATH="$mise_dir:/usr/bin" \
     mise "$@"
 }
 
