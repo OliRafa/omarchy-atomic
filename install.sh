@@ -165,10 +165,10 @@ run_root "$OMARCHY_INSTALL/config/firewall.sh"
 run_user "$OMARCHY_INSTALL/config/console-font.sh"
 
 # --- Hardware (Asahi/aarch64; self-gating and idempotent) --------------------
-omarchy_log_line "[$(date '+%Y-%m-%d %H:%M:%S')] Starting (root): omarchy-setup-hardware"
-sudo bash -eE -c 'export OMARCHY_PATH="$1" OMARCHY_INSTALL="$2" OMARCHY_INSTALL_USER="$3"; export PATH="$OMARCHY_PATH/bin:$PATH"; exec omarchy-setup-hardware --install-user "$3"' \
+omarchy_log_line "[$(date '+%Y-%m-%d %H:%M:%S')] Starting (root): omarchy-apply-hardware"
+sudo bash -eE -c 'export OMARCHY_PATH="$1" OMARCHY_INSTALL="$2" OMARCHY_INSTALL_USER="$3"; export PATH="$OMARCHY_PATH/bin:$PATH"; exec omarchy-apply-hardware --install-user "$3"' \
   _ "$OMARCHY_PATH" "$OMARCHY_INSTALL" "$OMARCHY_INSTALL_USER" >>"$OMARCHY_INSTALL_LOG_FILE" 2>&1 ||
-  omarchy_log_line "[$(date '+%Y-%m-%d %H:%M:%S')] Warning: omarchy-setup-hardware reported an error (continuing)"
+  omarchy_log_line "[$(date '+%Y-%m-%d %H:%M:%S')] Warning: omarchy-apply-hardware reported an error (continuing)"
 
 # --- User configs and finalization -------------------------------------------
 run_user "$OMARCHY_INSTALL/config/config.sh"
