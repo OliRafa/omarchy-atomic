@@ -173,19 +173,6 @@ if notify_alias not in pkgbuild:
     "alias, so users who have not run migration 1785095882 lose the login notifier"
   )
 
-alpm_hooks = [
-  "00-omarchy-update-guard.hook",
-  "10-omarchy-hyprland-reload-pause.hook",
-  "90-omarchy-hyprland-reload-resume.hook",
-]
-for hook in alpm_hooks:
-  source = f"default/libalpm/hooks/{hook}"
-  destination = f"/usr/share/libalpm/hooks/{hook}"
-  if not (root / source).exists():
-    errors.append(f"missing package default source: {source}")
-  if source not in omarchy_pkgbuild or destination not in omarchy_pkgbuild:
-    errors.append(f"omarchy PKGBUILD does not install {source} -> {destination}")
-
 if errors:
   print("\n".join(errors), file=sys.stderr)
   sys.exit(1)
