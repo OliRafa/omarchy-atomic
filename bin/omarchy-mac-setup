@@ -328,6 +328,7 @@ load_conf() {
 }
 
 save_conf() {
+  # omarchy:heredoc-expands paths=none -- SETUP_* are this root-run installer's own parsed CLI args and prompt answers, not paths
   cat >"$CONF" <<EOF
 # Written by omarchy-mac-setup; delete it to stop the guided install.
 WANT_ENCRYPT=$want_encrypt
@@ -430,7 +431,7 @@ install_unit() {
   cat >"$UNIT" <<EOF
 [Unit]
 Description=Omarchy Mac guided setup
-ConditionPathExists=$CONF
+ConditionPathExists=/etc/omarchy-mac-setup.conf
 After=network-online.target systemd-user-sessions.service
 After=omarchy-btrfs-migrate-finish.service
 Conflicts=getty@tty1.service
@@ -449,7 +450,7 @@ Type=oneshot
 # that ever stops it. Dismiss it before taking the tty. Leading - so a machine
 # without plymouth is not a failed unit.
 ExecStartPre=-/usr/bin/plymouth quit
-ExecStart=$SELF --resume
+ExecStart=/usr/local/bin/omarchy-mac-setup --resume
 StandardInput=tty-force
 StandardOutput=tty
 StandardError=tty

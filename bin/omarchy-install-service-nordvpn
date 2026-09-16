@@ -24,7 +24,7 @@ name=NordVPN
 baseurl=https://repo.nordvpn.com/yum/nordvpn/centos/\$basearch
 enabled=1
 gpgcheck=1
-gpgkey=$NORDVPN_KEY_URL
+gpgkey=https://repo.nordvpn.com/gpg/nordvpn_public.asc
 EOF
 
 sudo dnf install -y nordvpn

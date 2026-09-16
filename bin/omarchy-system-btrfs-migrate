@@ -672,11 +672,11 @@ EOF
   cat >"$FINISH_UNIT" <<EOF
 [Unit]
 Description=Finish the Omarchy btrfs migration
-ConditionPathExists=$CONF
+ConditionPathExists=/etc/omarchy-btrfs-migrate.conf
 
 [Service]
 Type=oneshot
-ExecStart=$WORKER_DIR/finish
+ExecStart=/usr/local/lib/omarchy-btrfs-migrate/finish
 RemainAfterExit=yes
 
 [Install]

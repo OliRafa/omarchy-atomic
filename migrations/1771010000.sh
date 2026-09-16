@@ -18,6 +18,7 @@ if [[ ! -f /usr/share/wayland-sessions/hyprland-uwsm.desktop ]] && [[ -f /usr/sh
 fi
 
 sudo mkdir -p /etc/sddm.conf.d
+# omarchy:heredoc-expands paths=none -- autologin_user and session_name are a resolved account name and a session id, not paths
 cat <<EOF | sudo tee /etc/sddm.conf.d/autologin.conf >/dev/null
 [Autologin]
 User=$autologin_user
