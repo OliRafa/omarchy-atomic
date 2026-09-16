@@ -61,7 +61,7 @@ already applied a machine-wide repair, the migration should no-op for other user
 
 Two things are specific to this fork:
 
-- A fresh install is not expected to replay history. `omarchy-finalize-user --first-install` stamps
+- A fresh install is not expected to replay history. `omarchy-provision-user --first-install` stamps
   every migration present at install time, so only migrations added afterwards ever run.
 - Migrations written for Arch are skipped rather than failed. `omarchy-migrate` detects pacman, yay,
   mkinitcpio, limine and similar markers and records them under

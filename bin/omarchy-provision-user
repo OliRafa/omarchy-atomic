@@ -25,7 +25,7 @@ USAGE
 }
 
 if (( EUID == 0 )); then
-  echo "Error: run omarchy-finalize-user as the user being configured, not as root." >&2
+  echo "Error: run omarchy-provision-user as the user being configured, not as root." >&2
   exit 1
 fi
 

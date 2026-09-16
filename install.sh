@@ -3,7 +3,7 @@
 # Fedora Asahi Remix (aarch64) git-clone installer for omarchy-mac-fedora.
 #
 # Upstream quattro installs from an ISO: the image installs packages and creates
-# the user, then runs `omarchy-setup-system` and `omarchy-finalize-user` in the
+# the user, then runs `omarchy-setup-system` and `omarchy-provision-user` in the
 # target chroot. The fork ships by git clone instead, so this script does the
 # same work on an already-running Fedora Asahi system.
 #
@@ -176,9 +176,9 @@ run_user "$OMARCHY_INSTALL/config/xdg-user-dirs.sh"
 run_user "$OMARCHY_INSTALL/config/timezone-detection.sh"
 run_user "$OMARCHY_INSTALL/config/zsh.sh"
 run_user "$OMARCHY_INSTALL/config/lazyvim.sh"
-omarchy_log_line "[$(date '+%Y-%m-%d %H:%M:%S')] Starting: omarchy-finalize-user"
-omarchy-finalize-user --first-install </dev/null >>"$OMARCHY_INSTALL_LOG_FILE" 2>&1 ||
-  omarchy_log_line "[$(date '+%Y-%m-%d %H:%M:%S')] Warning: omarchy-finalize-user reported an error (continuing)"
+omarchy_log_line "[$(date '+%Y-%m-%d %H:%M:%S')] Starting: omarchy-provision-user"
+omarchy-provision-user --first-install </dev/null >>"$OMARCHY_INSTALL_LOG_FILE" 2>&1 ||
+  omarchy_log_line "[$(date '+%Y-%m-%d %H:%M:%S')] Warning: omarchy-provision-user reported an error (continuing)"
 
 # --- Login (SDDM + initramfs) ------------------------------------------------
 run_user "$OMARCHY_INSTALL/login/sddm.sh"
