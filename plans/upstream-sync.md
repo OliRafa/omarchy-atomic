@@ -52,6 +52,12 @@ Bring the fork close to upstream `basecamp/omarchy` quattro. **Follow upstream o
 - [x] Phase 1 — merge & resolve (`67616aa7`); merged origin/quattro too (`20a2dd5b`, stale base)
 - [x] CI wired — draft PR #18 to quattro; `tests.yml` added; lint green; suite deps (lua/magick/mise/updatedb) added
 - [x] Removed 11 pure Arch/pacman/limine/x86 test files (`88f25a0d`)
+- [x] Fixed the 15 crashing test files from CI run 35103314994 (firewall-config by parent `7979b595`; the other 14 in `8945dc8e`..`9afac927`). 10 adapted to the fork, 4 retired:
+  - Adapted: `config` (drop pacman ALPM hooks), `video-background` (drop removed `omarchy-upgrade-to-quattro` read), `snapper` (`omarchy-apply-system` rename + drop Arch-ISO/archinstall block), `locate` (tolerate non-UTF-8 `bin/__pycache__` bytecode), `kitty-config` (stub `gum`), `mise-work-path` (keep `mise` on the isolated PATH), `nopasswd-sudo-expiry` (drop `systemd-tmpfiles --inline`, use a conf file), `launch-browser` (rewrite for the `uwsm-app` launcher), `sddm-login` (rewrite → static analysis of Fedora autologin `sddm.sh`), `pkg-drop` (rewrite for `rpm -q`/`dnf remove`).
+  - Retired (flagged): `omarchy-kernel-migration` (Arch/limine `linux-omarchy` pacman migration), `update-pkg-prune` (paccache), `update-lock` (upstream update-lock/stay-awake orchestration not ported), `windows-vm-compose` (upstream hardened compose writer not ported; fork ships the un-hardened x86-only original).
+  - **Phase 5 must also purge:** `bin/omarchy-update-pkg-prune` (paccache) and `migrations/1789325478.sh` (x86 `linux-omarchy` + Limine boot order). Both self-inert on aarch64 but Arch-only.
+  - **Deferred re-adds (not Arch):** re-add `update-lock-test.sh` when the update-lock/stay-awake orchestration is ported into `omarchy-update`; re-add `windows-vm-compose-test.sh` if upstream's hardened `omarchy-windows-vm` writer is adopted.
+  - Residual risk: `snapper-test`'s omarchy-pkgs PKGBUILD asserts run against the upstream `omacom-io/omarchy-pkgs` checkout CI clones (not reached before the crash), so unverified until the next run.
 - [ ] Phase 2 — platform adaptations (in progress). Post-Batch-1 CI: 43 suite failures.
 - [ ] Phase 3 — build wiring (etc-files.sh + system packages)
 - [ ] Phase 4 — new software (brew/flatpak)
