@@ -89,7 +89,11 @@ with tempfile.TemporaryDirectory(prefix="omarchy-locate-") as scratch:
   # plocate's updatedb has no mlocate-style --debug-pruning, so verify the fixed
   # Btrfs options (asserted statically above) by running a real index and
   # inspecting the resulting database below rather than parsing debug output.
-  subprocess.run(run, capture_output=True, text=True, check=True)
+  # Surface updatedb's own stderr on failure instead of a bare CalledProcessError.
+  proc = subprocess.run(run, capture_output=True, text=True)
+  check(proc.returncode == 0,
+        "real updatedb runs the drop-in Btrfs options (rc=%d): %s"
+        % (proc.returncode, (proc.stderr or proc.stdout).strip() or "(no output)"))
   entries = subprocess.check_output(["plocate", "--database", str(database), ""], text=True).splitlines()
   check(str(visible) in entries and str(hidden) not in entries,
         "real locate indexes current files and preserves literal administrator exclusions")
