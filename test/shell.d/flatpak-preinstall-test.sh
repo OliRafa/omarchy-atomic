@@ -6,7 +6,7 @@
 # but no boot unit, so omarchy-flatpak-preinstall.service is the thin wrapper that runs it — the only
 # Flatpak-provisioning code we own. This is the same mechanism Bluefin/Aurora use.
 #
-# Those apps are core dependencies: mimeapps.list maps http(s) to com.brave.Browser and images to
+# Those apps are core dependencies: mimeapps.list maps http(s) to org.chromium.Chromium and images to
 # org.gnome.Loupe, and hypr/apps/system.lua launches Loupe. When provisioning never completes, a
 # machine boots with mime handlers pointing at software that was never installed.
 #
@@ -40,7 +40,7 @@ pass "the old bespoke flatpak-setup script and list are gone"
 # The upstream .preinstall format groups each app as [Flatpak Preinstall <id>]. Assert the app set,
 # and that every group pins Branch=stable — the flatpak default is "master", which does not exist on
 # Flathub, so an unpinned group silently installs nothing.
-for app in com.brave.Browser org.gnome.Evince org.gnome.Calculator org.gnome.Loupe \
+for app in org.chromium.Chromium org.gnome.Evince org.gnome.Calculator org.gnome.Loupe \
            com.obsproject.Studio org.kde.kdenlive com.github.PintaProject.Pinta \
            com.github.xournalpp.xournalpp org.libreoffice.LibreOffice md.obsidian.Obsidian; do
   grep -qF "[Flatpak Preinstall $app]" "$manifest" || fail "manifest declares $app"

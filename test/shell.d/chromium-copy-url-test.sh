@@ -31,15 +31,16 @@ pass "copy-url extension manifest has the stable id"
 
 jq -e '
   .manifest_version == 3 and
-  (.permissions | index("clipboardWrite")) and
-  (.permissions | index("offscreen")) and
+  (.permissions | index("nativeMessaging")) and
+  (.permissions | index("clipboardWrite") | not) and
+  (.permissions | index("offscreen") | not) and
   (.background.service_worker | startswith("background-"))
 ' "$ROOT/default/chromium/extensions/copy-url/manifest.json" >/dev/null ||
-  fail "copy-url extension uses an offscreen clipboard document"
-[[ -f $ROOT/default/chromium/extensions/copy-url/offscreen.html &&
-  -f $ROOT/default/chromium/extensions/copy-url/offscreen.js ]] ||
-  fail "copy-url extension ships its offscreen clipboard document"
-pass "copy-url extension uses an offscreen clipboard document"
+  fail "copy-url extension uses its native messaging host"
+grep -q "sendNativeMessage('com.omarchy.copy_url'" \
+  "$ROOT/default/chromium/extensions/copy-url/"background-*.js ||
+  fail "copy-url extension sends URLs to its native messaging host"
+pass "copy-url extension uses its native messaging host"
 
 jq -e '.action != null' "$ROOT/default/chromium/extensions/copy-url/manifest.json" >/dev/null &&
   grep -q 'action.onClicked' "$ROOT/default/chromium/extensions/copy-url/"background-*.js ||
