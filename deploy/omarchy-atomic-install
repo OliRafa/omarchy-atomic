@@ -47,7 +47,11 @@ command -v podman >/dev/null || { echo "podman required (bootc install reads /va
 # emergency mode. NOTE: the pivot failing is a separate bug from the host check — a Fedora host
 # hits it too, it just fails quietly (old Fedora userland, new kernel) instead of loudly.
 host_id="$(sed -n 's/^ID=//p' /etc/os-release 2>/dev/null | tr -d '"' | head -1 || true)"
-if [[ $host_id != "fedora" ]]; then
+# Fedora Asahi Remix reports ID=fedora-asahi-remix (with ID_LIKE=fedora), not a bare ID=fedora, so
+# match "fedora" as a whole token across ID and ID_LIKE. This still refuses a pacman root (ID=arch),
+# the case this check exists to catch.
+host_id_like="$(sed -n 's/^ID_LIKE=//p' /etc/os-release 2>/dev/null | tr -d '"' | head -1 || true)"
+if [[ " $host_id $host_id_like " != *" fedora "* ]]; then
   echo "host OS is '${host_id:-unknown}', not Fedora Asahi Remix — refusing to install." >&2
   echo "  This path is only supported and tested on Fedora Asahi Remix. bootc will install onto" >&2
   echo "  a pacman root and report success, then boot this image's kernel against the host's own" >&2
