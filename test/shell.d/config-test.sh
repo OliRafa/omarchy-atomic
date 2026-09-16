@@ -37,6 +37,14 @@ jq -e '
 ' "$ROOT/config/omarchy/shell.json" >/dev/null
 pass "default clock date format has no leading zero"
 
+jq -e '
+  def ids: map(.id // .);
+  (.bar.layout.right | ids) as $ids |
+  ($ids | index("omarchy.tray")) as $tray |
+  ($ids | index("omarchy.agents")) as $agents |
+  $tray != null and $agents == $tray + 1
+' "$ROOT/config/omarchy/shell.json" >/dev/null
+pass "default right layout keeps agents next to the tray"
 
 ROOT="$ROOT" python3 <<'PY'
 import json
@@ -142,6 +150,7 @@ package_defaults = [
   ("default/systemd/user/omarchy-fcitx5.service", "/usr/lib/systemd/user/omarchy-fcitx5.service", "systemd/user/omarchy-fcitx5.service"),
   ("default/systemd/user/omarchy-crash-watch.service", "/usr/lib/systemd/user/omarchy-crash-watch.service", "systemd/user/omarchy-crash-watch.service"),
   ("default/systemd/zram-generator.conf.d/90-omarchy.conf", "/usr/lib/systemd/zram-generator.conf.d/90-omarchy.conf", "systemd/zram-generator.conf.d/90-omarchy.conf"),
+  ("default/systemd/system/plocate-updatedb.service.d/10-omarchy.conf", "/usr/lib/systemd/system/plocate-updatedb.service.d/10-omarchy.conf", "systemd/system/plocate-updatedb.service.d/10-omarchy.conf"),
   ("default/fonts/omarchy/omarchy.ttf", "/usr/share/fonts/omarchy/omarchy.ttf", "omarchy.ttf"),
   ("default/snapper/root", "/etc/snapper/config-templates/omarchy", "snapper/root"),
 ]

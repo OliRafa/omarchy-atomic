@@ -126,6 +126,7 @@ New migration format:
 - Start with an `echo` describing what the migration does.
 - Use `$OMARCHY_PATH` to reference the Omarchy directory.
 - Be idempotent. Check existing state before changing it.
+- Migrations are strictly ordered and synchronous. A migration that cannot finish must exit non-zero, remain pending, and stop the queue; never mark later migrations complete against state an earlier migration has not established.
 - Use helper commands such as `omarchy-cmd-present`, `omarchy-cmd-missing`,
   `omarchy-pkg-add`, `omarchy-pkg-drop`, `omarchy-pkg-present`, and
   `omarchy-pkg-missing` when appropriate.
@@ -166,3 +167,7 @@ On this Fedora fork the 3.8.x → quattro (4.0) upgrade runs entirely through
 `omarchy-update` and the migration runner; there is no separate upgrade command.
 Upstream's `omarchy-upgrade-to-quattro` was pacman/keyring/limine-only and never
 applied to Fedora, so it was removed. Put pre-4 transition work in a migration.
+
+Keep a dedicated test while the migration is still being written or bugfixed, if it calls an Omarchy helper whose interface can still change, or if it is a security-sensitive privileged repair (FIDO2, leftover installer artifacts, udev, sshd). Once a one-shot rewrite has shipped in a tagged release and is frozen, drop the test even when that rewrite used sudo or a package install. Keep the migration itself for late-updaters. Tests of `omarchy-migrate` and the login notifier stay.
+
+Clearing a privileged file that a retired installer left on disk belongs in a migration. Such a migration must name the defect it clears and match what the old installer actually produced before deleting it. Leave safe administrator-authored files alone; if one still contains the vulnerable privileged action, preserve it under an inactive name rather than discarding custom content or leaving the action executable. A user config that depends on the same retired compatibility path may be repaired in that migration when doing so eliminates an overlapping migration, but only by matching and replacing the exact legacy path while preserving the rest of the file.
