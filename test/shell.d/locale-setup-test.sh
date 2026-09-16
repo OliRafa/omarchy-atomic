@@ -40,10 +40,20 @@ cat >"$stub_bin/locale" <<'SH'
 printf '%s\n' ${GENERATED_LOCALES:-C}
 SH
 
-cat >"$stub_bin/locale-gen" <<'SH'
+cat >"$stub_bin/rpm" <<'SH'
 #!/bin/bash
+# glibc-langpack-en is not preinstalled here, so locale.sh falls through to localedef.
+exit 1
+SH
 
-printf 'locale-gen\n' >>"$TEST_LOG"
+cat >"$stub_bin/dnf" <<'SH'
+#!/bin/bash
+printf 'dnf %s\n' "$*" >>"$TEST_LOG"
+SH
+
+cat >"$stub_bin/localedef" <<'SH'
+#!/bin/bash
+printf 'localedef %s\n' "$*" >>"$TEST_LOG"
 SH
 
 cat >"$stub_bin/sudo" <<'SH'
@@ -61,14 +71,12 @@ run_leaf() {
     bash -euo pipefail -c 'source "$1"' bash "$leaf" >/dev/null
 }
 
-# A stock Asahi Alarm machine: LANG=C, nothing enabled in locale.gen.
+# A stock Asahi machine: LANG=C, en_US.UTF-8 not yet generated. Fedora generates
+# it with localedef (glibc-langpack-* first, then localedef), not locale.gen.
 printf 'LANG=C\n' >"$locale_conf"
-printf '#en_US.UTF-8 UTF-8\n#de_DE.UTF-8 UTF-8\n' >"$locale_gen"
 run_leaf C
 /usr/bin/grep -qx 'LANG=en_US.UTF-8' "$locale_conf" || fail "a C locale is replaced with UTF-8" "$(cat "$locale_conf")"
-/usr/bin/grep -qx 'en_US.UTF-8 UTF-8' "$locale_gen" || fail "en_US.UTF-8 is enabled in locale.gen" "$(cat "$locale_gen")"
-/usr/bin/grep -qx '#de_DE.UTF-8 UTF-8' "$locale_gen" || fail "other locales are left commented" "$(cat "$locale_gen")"
-/usr/bin/grep -qx 'locale-gen' "$calls" || fail "the locale is generated" "$(cat "$calls")"
+/usr/bin/grep -qx 'localedef -i en_US -f UTF-8 en_US.UTF-8' "$calls" || fail "en_US.UTF-8 is generated with localedef" "$(cat "$calls")"
 pass "a stock LANG=C machine gets en_US.UTF-8"
 
 # Only the stock state is repaired. Every named locale is somebody's choice --
