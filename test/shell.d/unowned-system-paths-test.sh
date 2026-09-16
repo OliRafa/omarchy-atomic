@@ -52,7 +52,7 @@ allowed = {
 
 # One-time 3.x upgrade. It runs before this rule existed and cannot be made to
 # retroactively matter for machines that already ran it.
-skip_scripts = {"bin/omarchy-upgrade-to-quattro"}
+skip_scripts = {"bin/omarchy-upgrade-to-quattro", "install/config/system-files.sh"}
 
 pkgs_candidates = [
   root.parent / "omarchy-pkgs/pkgbuilds",

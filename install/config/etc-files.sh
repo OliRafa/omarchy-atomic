@@ -24,6 +24,7 @@ install_etc() {
 }
 
 install_etc cups/cups-browsed.conf
+install_etc cups/cups-files.conf
 install_etc docker/daemon.json
 install_etc fastfetch/config.jsonc
 install_etc gnupg/dirmngr.conf

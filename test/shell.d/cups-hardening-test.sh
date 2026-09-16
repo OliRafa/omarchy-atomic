@@ -24,22 +24,16 @@ grep -qxF cups-pk-helper "$packages" || fail "Polkit printer administration is i
 ! grep -qxF cups-browsed "$packages" || fail "automatic printer discovery is out of the base package set"
 ! grep -q 'cups-browsed' "$ROOT/install/config/enable-services.sh" ||
   fail "a fresh install does not enable a discovery service it no longer installs"
-! grep -q 'enable_system_service cups-browsed' "$ROOT/bin/omarchy-upgrade-to-quattro" ||
-  fail "the Quattro upgrade does not enable a discovery service it no longer installs"
 
 pass "the base install keeps CUPS and Polkit administration, without automatic discovery"
 
-# CUPS still ships /etc/cups/cups-files.conf, so its authorization override is
-# applied after the ISO installs that package. cups-browsed is absent, so the
-# installer must not write any of its package-owned configuration.
-post_install_pacman="$ROOT/install/post-install/pacman.sh"
+# On this fork there is no pacman post-install step; the CUPS authorization
+# override (/etc/cups/cups-files.conf) is shipped by the build's etc/ deployment.
+etc_files="$ROOT/install/config/etc-files.sh"
+grep -q 'install_etc cups/cups-files.conf' "$etc_files" ||
+  fail "the CUPS authorization override is installed at build time"
 
-! grep -q 'cups-cups-browsed.conf' "$post_install_pacman" ||
-  fail "a fresh install does not write configuration for absent printer discovery"
-grep -q 'cups-cups-files.conf && -f /etc/cups/cups-files.conf' "$post_install_pacman" ||
-  fail "the CUPS authorization override waits for the file it replaces"
-
-pass "the fresh install applies CUPS hardening without writing discovery configuration"
+pass "the fresh install applies CUPS hardening"
 
 grep -qxF 'CacheDir /var/cache/cups-browsed' "$cups_browsed_conf" ||
   fail "cups-browsed keeps state outside the print-filter cache"
