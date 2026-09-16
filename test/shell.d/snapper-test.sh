@@ -59,7 +59,11 @@ pass "Snapper service migration only repairs broken services idempotently"
 
 find_omarchy_pks_root() {
   local candidate
+  # CI points OMARCHY_PKGS_PATH at the omarchy-pkgs checkout (its PKGBUILDs live
+  # under pkgbuilds/); the sibling paths cover local checkouts.
   for candidate in \
+    ${OMARCHY_PKGS_PATH:+"$OMARCHY_PKGS_PATH/pkgbuilds"} \
+    ${OMARCHY_PKGS_PATH:+"$OMARCHY_PKGS_PATH"} \
     "$ROOT/../omarchy-pkgs/pkgbuilds" \
     "$ROOT/../omarchy/omarchy-pkgs/pkgbuilds" \
     "$ROOT/../../omarchy-pkgs/pkgbuilds"; do
