@@ -8,5 +8,4 @@
 # following an existing symlink, the full packaged asset set is published
 # (including logos/), and the Plymouth refresh rebuilds the initramfs. Run each
 # as a child so refresh-plymouth's exec does not stop us before refresh-sddm.
-omarchy-refresh-plymouth
-omarchy-refresh-sddm
+omarchy-refresh-plymouth && omarchy-refresh-sddm
