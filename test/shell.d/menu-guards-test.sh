@@ -94,39 +94,27 @@ prelude() {
 stub_dir=$(mktemp -d)
 trap 'rm -rf "$stub_dir"' EXIT
 
-# `pacman -Q` resolves a name through what installed packages provide, so gvim
-# answers for vim and bash answers for sh. A set built from `pacman -Qq` alone
-# would miss both and offer to install what is already there.
-#
-# `-Qi` wraps a long list onto indented continuation lines whenever COLUMNS is
-# set, so gvim's provides arrive the way a wrapped terminal would emit them.
-cat >"$stub_dir/pacman" <<'STUB'
+# The fork's omarchy-pkg-present is `rpm -q <name>`: a literal name lookup with
+# no provides resolution, so bash and vim are present but sh (provided by bash,
+# not owned by it) is not. Stub rpm the same way -- `rpm -qa` lists installed
+# names, `rpm -q` succeeds only for them -- so the shadow and the real helper
+# agree for every case.
+cat >"$stub_dir/rpm" <<'STUB'
 #!/bin/bash
-case "$1" in
--Qq)
-  printf '%s\n' bash gvim
-  ;;
--Qi)
-  cat <<'INFO'
-Name            : bash
-Provides        : sh
-Version         : 5.3.0-1
-Name            : gvim
-Provides        : vim=9.2.0849-1
-                  xxd
-Version         : 9.2-1
-INFO
-  ;;
--Q)
+if [[ $1 == -qa ]]; then
+  printf '%s\n' bash vim
+  exit 0
+fi
+if [[ $1 == -q ]]; then
   shift
   for want in "$@"; do
-    case "${want%%[<>=]*}" in bash | gvim | sh | vim | xxd) ;; *) exit 1 ;; esac
+    case "$want" in bash | vim) ;; *) exit 1 ;; esac
   done
-  ;;
-esac
-exit 0
+  exit 0
+fi
+exit 1
 STUB
-chmod +x "$stub_dir/pacman"
+chmod +x "$stub_dir/rpm"
 printf '#!/bin/bash\nexit 0\n' >"$stub_dir/gvim"
 chmod +x "$stub_dir/gvim"
 
@@ -145,16 +133,17 @@ assert_helper_agrees() {
   ((real == shadowed)) || fail "$description" "$helper $*: real=$real shadowed=$shadowed"
 }
 
-# vim, sh and xxd are provided rather than installed, and xxd only appears on a
-# wrapped continuation line; bash>=1 is a version constraint no set can answer.
-pkg_cases=("bash" "vim" "sh" "xxd" "absent" "bash vim" "bash absent" "bash>=1" "vim>=1" "")
+# sh is provided by bash but not owned by it, so rpm -q reports it absent;
+# bash>=1 is a version constraint that is not a plain name. Each must resolve
+# the same way through the shadow as through the real rpm-backed helper.
+pkg_cases=("bash" "vim" "sh" "absent" "bash vim" "bash absent" "bash>=1" "")
 for helper in omarchy-pkg-present omarchy-pkg-missing; do
   for case in "${pkg_cases[@]}"; do
     read -r -a argv <<<"$case"
-    assert_helper_agrees "guard prelude resolves packages as pacman does" "$helper" "${argv[@]}"
+    assert_helper_agrees "guard prelude resolves packages as rpm does" "$helper" "${argv[@]}"
   done
 done
-pass "guard prelude resolves packages through provides, wrapping, and constraints as pacman does"
+pass "guard prelude resolves package names as rpm does"
 
 # cd is a shell builtin `command -v` finds and a PATH search does not.
 cmd_cases=("gvim" "cd" "absent" "gvim absent" "gvim cd" "")
