@@ -62,7 +62,9 @@ with tempfile.TemporaryDirectory(prefix="omarchy-locate-") as scratch:
     path.chmod(0o755)
   calls = scratch / "updatedb-arguments"
   env = dict(os.environ, PATH=str(fake_bin) + ":" + os.environ["PATH"], TEST_CALLS=str(calls))
-  for relative in ("install/post-install/localdb.sh", "bin/omarchy-pkg-aur-install"):
+  # omarchy-pkg-aur-install is an AUR helper; this fork has no AUR, so only the
+  # Fedora post-install path schedules updatedb with the fixed Btrfs options.
+  for relative in ("install/post-install/localdb.sh",):
     subprocess.run(["bash", "-euo", "pipefail", str(root / relative)], env=env, check=True)
     check(calls.read_text().splitlines() == options,
           relative + " passes the scheduled service options directly")
