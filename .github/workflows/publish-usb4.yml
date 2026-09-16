@@ -1,24 +1,24 @@
-name: publish-dp622 (test image)
+name: publish-usb4 (test image)
 
-# On-demand build + push + sign of the PR #622 DP-alt hotplug TEST image:
+# On-demand build + push + sign of the 7.2 USB4 + DP-alt TEST image:
 #
-#   ghcr.io/<owner>/omarchy-atomic-fairydust-core-dp622:44
+#   ghcr.io/<owner>/omarchy-atomic-fairydust-core-usb4:44
 #
-# It is the fairydust-core swap, but FROM the already-published core and consuming the PATCHED
-# fairydust kernel (build that first: OliRafa/omarchy-fairydust-kernel -> build-dp622 ->
-# ghcr.io/<owner>/omarchy-fairydust-kernel:<fdk_tag>). Signed keyless (GitHub OIDC) like
-# publish.yml so it satisfies the same on-device policy.json. Separate from production
-# fairydust-core; never runs automatically. aarch64 runner.
+# It is the fairydust-core swap, but FROM the already-published core and consuming the 7.2 kernel
+# (asahi-wip-7.2 + fairydust DP-alt commits + Apple USB4/Thunderbolt). Build that kernel first:
+# OliRafa/omarchy-fairydust-kernel -> build-usb4 -> ghcr.io/<owner>/omarchy-fairydust-kernel:<fdk_tag>.
+# Signed keyless (GitHub OIDC) like publish.yml so it satisfies the same on-device policy.json.
+# Separate from production fairydust-core; never runs automatically. aarch64 runner.
 on:
   workflow_dispatch:
     inputs:
       fdk_tag:
-        description: "patched fairydust kernel tag on GHCR"
+        description: "7.2 USB4+DP-alt kernel tag on GHCR"
         required: false
-        default: "44-dp622"
+        default: "44-usb4"
 
 concurrency:
-  group: publish-dp622-${{ github.ref }}
+  group: publish-usb4-${{ github.ref }}
   cancel-in-progress: false
 
 permissions:
@@ -42,7 +42,7 @@ jobs:
           {
             echo "core=ghcr.io/$owner/omarchy-atomic-core"
             echo "fdk=ghcr.io/$owner/omarchy-fairydust-kernel:${{ github.event.inputs.fdk_tag }}"
-            echo "out=ghcr.io/$owner/omarchy-atomic-fairydust-core-dp622"
+            echo "out=ghcr.io/$owner/omarchy-atomic-fairydust-core-usb4"
             echo "sha=${GITHUB_SHA::12}"
           } >> "$GITHUB_OUTPUT"
 
@@ -65,16 +65,16 @@ jobs:
       - name: Log in to GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u "${{ github.actor }}" --password-stdin
 
-      # FROM the published core (no rebuild) + the patched kernel. Mirrors the fairydust-core swap;
-      # the Containerfile rebuilds the composefs initramfs and runs `bootc container lint`.
-      - name: Build fairydust-core-dp622 image
+      # FROM the published core (no rebuild) + the 7.2 USB4/DP-alt kernel. Mirrors the fairydust-core
+      # swap; the Containerfile rebuilds the composefs initramfs and runs `bootc container lint`.
+      - name: Build fairydust-core-usb4 image
         run: |
           set -euo pipefail
           podman build -f images/fairydust-core/Containerfile \
             --build-arg BASE="${{ steps.refs.outputs.core }}" \
             --build-arg TAG="$FEDORA" \
             --build-arg FDK_IMAGE="${{ steps.refs.outputs.fdk }}" \
-            -t "omarchy-atomic-fairydust-core-dp622:$FEDORA" .
+            -t "omarchy-atomic-fairydust-core-usb4:$FEDORA" .
 
       - name: Tag, push, and record digest
         id: push
@@ -83,7 +83,7 @@ jobs:
           out="${{ steps.refs.outputs.out }}"
           sha="${{ steps.refs.outputs.sha }}"
           for t in "$FEDORA" "$FEDORA-$sha" latest; do
-            podman tag "omarchy-atomic-fairydust-core-dp622:$FEDORA" "$out:$t"
+            podman tag "omarchy-atomic-fairydust-core-usb4:$FEDORA" "$out:$t"
           done
           podman push "$out:$FEDORA" --digestfile out.digest
           podman push "$out:$FEDORA-$sha"
@@ -103,10 +103,10 @@ jobs:
       - name: Summary
         run: |
           {
-            echo "### Published + signed test image"
+            echo "### Published + signed USB4 + DP-alt test image"
             echo ""
             echo "- \`${{ steps.push.outputs.ref }}\`"
             echo "- kernel: \`${{ steps.refs.outputs.fdk }}\`"
             echo ""
-            echo "Boot it: \`sudo bootc switch ${{ steps.refs.outputs.out }}:$FEDORA\` (then reboot with the monitor attached)"
+            echo "Boot it: \`sudo bootc switch ${{ steps.refs.outputs.out }}:$FEDORA\` (then reboot; test USB4 and the monitor)"
           } >> "$GITHUB_STEP_SUMMARY"

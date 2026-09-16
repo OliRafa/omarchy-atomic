@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Build an omarchy-atomic bootc image. Run on a native aarch64 (Apple Silicon) host.
 #
-#   ./images/build.sh core                 # -> omarchy-atomic-core:$FEDORA
-#   ./images/build.sh preinstalls          # -> omarchy-atomic:$FEDORA (FROM the core image)
-#   ./images/build.sh fairydust-core       # -> omarchy-atomic-fairydust-core:$FEDORA (FROM core; kernel swap)
-#   ./images/build.sh fairydust-core-dp622 # -> omarchy-atomic-fairydust-core-dp622:$FEDORA (test image; PR #622-patched kernel)
+#   ./images/build.sh core                # -> omarchy-atomic-core:$FEDORA
+#   ./images/build.sh preinstalls         # -> omarchy-atomic:$FEDORA (FROM the core image)
+#   ./images/build.sh fairydust-core      # -> omarchy-atomic-fairydust-core:$FEDORA (FROM core; kernel swap)
+#   ./images/build.sh fairydust-core-usb4 # -> omarchy-atomic-fairydust-core-usb4:$FEDORA (test image; 7.2 USB4+DP-alt kernel)
 #
 #   WITH_FIRST_PARTY=0 ./images/build.sh core   # faster: validate the core package set only
 #   ENGINE=podman FEDORA=43 ./images/build.sh core
@@ -43,19 +43,19 @@ case "$TARGET" in
       --build-arg TAG="$FEDORA" \
       --build-arg FDK_IMAGE="$FDK_IMAGE" \
       -t "$TAG" "$REPO_ROOT" ;;
-  fairydust-core-dp622)
-    # Side/test variant: identical kernel-swap to fairydust-core, but consumes the locally built
-    # PR #622-patched kernel and tags the bootc image distinctly so it never overwrites the
-    # production fairydust-core. Build the patched kernel first, in the kernel repo:
-    #   PATCHES=1 ./build.sh        # -> omarchy-fairydust-kernel:$FEDORA-dp622
-    FDK_IMAGE="${FDK_IMAGE:-omarchy-fairydust-kernel:$FEDORA-dp622}"
-    TAG="${TAG:-omarchy-atomic-fairydust-core-dp622:$FEDORA}"
-    echo "==> $ENGINE build $TAG (fairydust-core-dp622 TEST image, FROM omarchy-atomic-core:$FEDORA, kernel=$FDK_IMAGE)"
+  fairydust-core-usb4)
+    # Side/test variant: identical kernel-swap to fairydust-core, but consumes the 7.2 USB4 + DP-alt
+    # kernel and tags the bootc image distinctly so it never overwrites the production fairydust-core.
+    # Build that kernel first, in the kernel repo:
+    #   USB4=1 ./build.sh        # -> omarchy-fairydust-kernel:$FEDORA-usb4
+    FDK_IMAGE="${FDK_IMAGE:-omarchy-fairydust-kernel:$FEDORA-usb4}"
+    TAG="${TAG:-omarchy-atomic-fairydust-core-usb4:$FEDORA}"
+    echo "==> $ENGINE build $TAG (fairydust-core-usb4 TEST image, FROM omarchy-atomic-core:$FEDORA, kernel=$FDK_IMAGE)"
     exec "$ENGINE" build \
       -f "$REPO_ROOT/images/fairydust-core/Containerfile" \
       --build-arg TAG="$FEDORA" \
       --build-arg FDK_IMAGE="$FDK_IMAGE" \
       -t "$TAG" "$REPO_ROOT" ;;
   *)
-    echo "usage: $0 [core|preinstalls|fairydust-core|fairydust-core-dp622]" >&2; exit 2 ;;
+    echo "usage: $0 [core|preinstalls|fairydust-core|fairydust-core-usb4]" >&2; exit 2 ;;
 esac
