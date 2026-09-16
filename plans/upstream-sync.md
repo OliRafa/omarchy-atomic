@@ -49,8 +49,12 @@ Bring the fork close to upstream `basecamp/omarchy` quattro. **Follow upstream o
 
 ## Status
 
-- [ ] Phase 1 — merge & resolve
-- [ ] Phase 2 — platform adaptations
+- [x] Phase 1 — merge & resolve (`67616aa7`); merged origin/quattro too (`20a2dd5b`, stale base)
+- [x] CI wired — draft PR #18 to quattro; `tests.yml` added; lint green; suite deps (lua/magick/mise/updatedb) added
+- [x] Removed 11 pure Arch/pacman/limine/x86 test files (`88f25a0d`)
+- [ ] Phase 2 — platform adaptations (in progress). Post-Batch-1 CI: 43 suite failures.
 - [ ] Phase 3 — build wiring (etc-files.sh + system packages)
 - [ ] Phase 4 — new software (brew/flatpak)
-- [ ] Phase 5 — pacman purge
+- [ ] Phase 5 — pacman purge (also removes channel/menu-guards/nm-transition pacman assertions if not adapted)
+
+### Batch 2 (next): env-deps ffmpeg+xkbcli; mise-work PATH-injection removal; reconstruct install/config/all.sh; theme-staging classify hermes/t3code; investigate provision-user + install-mac.
