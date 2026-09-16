@@ -11,8 +11,13 @@ legacy="$ROOT/test/shell.d/fixtures/kitty/legacy.conf"
 migration="$ROOT/migrations/1788745941.sh"
 mkdir -p "$(dirname "$kitty_config")" "$test_dir/bin"
 
+# The migration ends with `gum style` restart guidance. gum is a runtime package,
+# not present in CI, so stub it (a no-op) on the migration's PATH.
+printf '#!/bin/bash\nexit 0\n' >"$test_dir/bin/gum"
+chmod +x "$test_dir/bin/gum"
+
 run_migration() {
-  env HOME="$test_home" OMARCHY_PATH="$ROOT" PATH="$ROOT/bin:$PATH" bash -euo pipefail "$migration"
+  env HOME="$test_home" OMARCHY_PATH="$ROOT" PATH="$test_dir/bin:$ROOT/bin:$PATH" bash -euo pipefail "$migration"
 }
 
 cp "$legacy" "$kitty_config"
