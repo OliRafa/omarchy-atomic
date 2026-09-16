@@ -4,6 +4,12 @@ set -euo pipefail
 
 source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/base-test.sh"
 
+# The Mac fork's omarchy-windows-vm is an aarch64 stub that refuses to run (the
+# QEMU+KVM Windows path is x86_64-only), so it does not carry the compose/rules
+# content this suite asserts. Skip until/unless an x86 Mac variant needs it.
+echo "ok - windows-vm test skipped (aarch64 stub)"
+exit 0
+
 windows_vm_command="$ROOT/bin/omarchy-windows-vm"
 windows_vm_rules="$ROOT/default/hypr/apps/windows-vm.lua"
 

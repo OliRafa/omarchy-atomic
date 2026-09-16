@@ -52,7 +52,7 @@ pass "fresh installs keep DNS working before and after resolver startup"
 # iwd without moving the backend leaves NetworkManager with no Wi-Fi devices at
 # all - the radio simply disappears on a fresh install.
 network_setup="$ROOT/install/hardware/network.sh"
-grep -F 'systemctl disable iwd.service' "$network_setup" >/dev/null ||
+grep -E 'systemctl disable (--now )?iwd\.service' "$network_setup" >/dev/null ||
   fail "hardware setup retires iwd"
 grep -F 'NetworkManager/conf.d' "$network_setup" >/dev/null ||
   fail "hardware setup moves the NetworkManager Wi-Fi backend off iwd"

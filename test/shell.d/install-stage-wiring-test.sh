@@ -6,7 +6,10 @@ source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/base-test.sh"
 
 # A leaf that no all.sh sources never runs, and nothing else reports that. The
 # Quattro merge left several behind, so pin every stage to its driver.
-stages=(config hardware login post-install user)
+# The Fedora/bootc fork drives config/login/post-install leaves through
+# fedora-image-userland.sh and omarchy-apply-system (a curated hardcoded list),
+# not a per-stage all.sh; only hardware and user use an all.sh aggregator.
+stages=(hardware user)
 
 # Known-unwired leaves. Wiring one means deleting its line here, so the list
 # cannot quietly grow and cannot quietly rot.
