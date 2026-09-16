@@ -2,14 +2,7 @@
 mkdir -p "$HOME/Work"
 mkdir -p "$HOME/Work/tries"
 
-cat >"$HOME/Work/.mise.toml" <<'EOF'
-[env]
-_.path = "{{ cwd }}/bin"
-EOF
-
-mise trust ~/Work/.mise.toml
-
-# omarchy-finalize-user --first-install sets OMARCHY_SETUP_CONTEXT=iso-chroot, which upstream only
+# omarchy-provision-user --first-install sets OMARCHY_SETUP_CONTEXT=iso-chroot, which upstream only
 # ever reaches from the ISO. The fork installs by git clone, so that context is entered on a live
 # system with no /opt/packages at all - and the bundled tarball is linux-x64, which this aarch64
 # fork could not use anyway. Treat it as an optimisation and fall through to a normal mise install
