@@ -11,9 +11,14 @@ legacy="$ROOT/test/shell.d/fixtures/kitty/legacy.conf"
 migration="$ROOT/migrations/1788745941.sh"
 mkdir -p "$(dirname "$kitty_config")" "$test_dir/bin"
 
-# The migration ends with `gum style` restart guidance. gum is a runtime package,
-# not present in CI, so stub it (a no-op) on the migration's PATH.
-printf '#!/bin/bash\nexit 0\n' >"$test_dir/bin/gum"
+# The migration prints its restart guidance through `gum style ...`. gum is a
+# runtime package, absent in CI, so stub it to echo the arguments it is handed
+# (a no-op stub would swallow the guidance the test asserts on) and exit clean.
+cat >"$test_dir/bin/gum" <<'GUM'
+#!/bin/bash
+printf '%s\n' "$@"
+exit 0
+GUM
 chmod +x "$test_dir/bin/gum"
 
 run_migration() {
