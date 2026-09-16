@@ -26,6 +26,13 @@ create)
   # Get existing snapper config names from CSV output
   mapfile -t CONFIGS < <(sudo snapper --csvout list-configs | awk -F, 'NR>1 {print $1}')
 
+  # A snapshot that silently creates nothing reads as a successful backup, so an
+  # installed-but-unconfigured Snapper must fail loudly rather than pass.
+  if ((${#CONFIGS[@]} == 0)); then
+    echo "No Snapper configs found" >&2
+    exit 1
+  fi
+
   for config in "${CONFIGS[@]}"; do
     sudo snapper -c "$config" create -c number -d "$DESC"
     sudo snapper -c "$config" cleanup number
