@@ -24,8 +24,12 @@ STUB
 cat >"$stub_dir/systemctl" <<'STUB'
 #!/bin/bash
 printf 'systemctl %s\n' "$*" >>"$TEST_LOG"
-# is-enabled / is-active both fail: firewalld is off in the test environment.
-exit 1
+# Only the query subcommands report "off"; actions like `enable` must succeed so
+# firewall.sh (sourced under set -e) does not abort before staging its rules.
+case "${1:-}" in
+  is-enabled | is-active) exit 1 ;;
+esac
+exit 0
 STUB
 
 chmod +x "$stub_dir"/*
