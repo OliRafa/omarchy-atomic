@@ -114,7 +114,7 @@ SH
 chmod +x "$test_dir/bin/"*
 
 run_command() {
-  env HOME="$test_home" OMARCHY_PATH="$ROOT" PATH="$test_dir/bin:$ROOT/bin:$PATH" "$ROOT/bin/$@"
+  env HOME="$test_home" OMARCHY_PATH="$ROOT" PATH="$test_dir/bin:$ROOT/bin:$PATH" "$ROOT/bin/$1" "${@:2}"
 }
 
 cp "$ROOT/config/kitty/kitty.conf" "$kitty_config"
