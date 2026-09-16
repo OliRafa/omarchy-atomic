@@ -2,7 +2,7 @@
 
 self_path=$(readlink -f "$0")
 
-if command -v which >/dev/null 2>&1; then
+if omarchy-cmd-present which; then
   while IFS= read -r candidate; do
     candidate_path=$(readlink -f "$candidate" 2>/dev/null || true)
     if [[ -n "$candidate_path" && "$candidate_path" != "$self_path" ]]; then

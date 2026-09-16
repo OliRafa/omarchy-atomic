@@ -102,7 +102,7 @@ fi
 
 if [[ -z "$browser_exec" ]]; then
   for candidate in chromium-browser chromium firefox google-chrome brave-browser; do
-    if command -v "$candidate" >/dev/null 2>&1; then
+    if omarchy-cmd-present "$candidate"; then
       browser_exec="$candidate"
       break
     fi

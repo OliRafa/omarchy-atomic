@@ -86,7 +86,7 @@ for file in $OMARCHY_PATH/migrations/*.sh; do
     if bash -euo pipefail "$file"; then
       touch "$STATE_DIR/$filename"
     else
-      if command -v gum >/dev/null 2>&1 && gum confirm "Migration ${filename%.sh} failed. Skip and continue?"; then
+      if omarchy-cmd-present gum && gum confirm "Migration ${filename%.sh} failed. Skip and continue?"; then
         touch "$STATE_DIR/skipped/$filename"
       else
         exit 1
