@@ -101,6 +101,12 @@ mapfile -t tmpfiles_rules < <(grep -vE '^[[:space:]]*(#|$)' "$tmpfiles_file")
 (( ${#tmpfiles_rules[@]} == 1 )) ||
   fail "passwordless sudo ships one tmpfiles rule" "${tmpfiles_rules[*]}"
 
+# --inline needs systemd v249+, newer than some CI runners ship. Feed the rules
+# as a config file instead: every systemd-tmpfiles understands that, and it is
+# how the rule actually reaches the system.
+rules_conf="$test_tmp/omarchy-nopasswd-sudo.conf"
+printf '%s\n' "${tmpfiles_rules[@]}" >"$rules_conf"
+
 fake_root="$test_tmp/root"
 sudoers_dir="$fake_root/etc/sudoers.d"
 mkdir -p "$sudoers_dir"
@@ -110,11 +116,11 @@ for grant_name in "${grant_names[@]}"; do
 done
 touch "$sudoers_dir/omarchy-dns"
 
-systemd-tmpfiles --root="$fake_root" --remove --inline "${tmpfiles_rules[@]}"
+systemd-tmpfiles --root="$fake_root" --remove "$rules_conf"
 [[ -f $sudoers_dir/99-omarchy-nopasswd-alice ]] ||
   fail "boot-only cleanup leaves a live grant alone outside boot"
 
-systemd-tmpfiles --root="$fake_root" --remove --boot --inline "${tmpfiles_rules[@]}"
+systemd-tmpfiles --root="$fake_root" --remove --boot "$rules_conf"
 for grant_name in "${grant_names[@]}"; do
   stale_grant="$sudoers_dir/99-omarchy-nopasswd-$grant_name"
   [[ ! -e $stale_grant ]] || fail "boot cleanup removes every generated grant" "$stale_grant"
