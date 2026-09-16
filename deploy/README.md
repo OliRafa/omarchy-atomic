@@ -41,13 +41,19 @@ sudo reboot
 
 What it does:
 1. Identifies the OS ESP via `/proc/device-tree/chosen/asahi,efi-system-partition` (authoritative).
-2. **Backs up the entire ESP** to `/var/tmp/asahi-esp-backup` (m1n1, vendorfw, asahi/, ubootefi.var —
+2. **Grows the ESP** by folding the unused `/boot` into it, so there is room for two deployments'
+   kernels — a stock 500 MiB Asahi ESP is not, and an un-grown install can never `bootc upgrade`.
+   This runs `omarchy-atomic-grow-esp` automatically (see
+   [The ESP is too small for composefs](#the-esp-is-too-small-for-composefs-and-bootc-ignores-xbootldr));
+   it is skipped once there is no separate `/boot` left to absorb. If the kernel can't adopt the new
+   partition table without a reboot, the install stops and asks you to reboot and re-run — the grow
+   resumes and the install continues.
+3. **Backs up the entire ESP** to `/var/tmp/asahi-esp-backup` (m1n1, vendorfw, asahi/, ubootefi.var —
    everything, since we can't know in advance whether bootc reformats the ESP or writes into it).
-3. **Checks the ESP is big enough for two deployments** — it measures the image's own
-   `vmlinuz + initramfs.img` and compares against the ESP's free space. A stock 500 MiB Asahi ESP
-   is *not* big enough; see [The ESP is too small for composefs](#the-esp-is-too-small-for-composefs-and-bootc-ignores-xbootldr).
-4. `bootc install to-existing-root --composefs-backend --bootloader systemd` (plain bootc).
-5. **Restores** every backed-up entry bootc removed — *except* `EFI/`, which bootc just wrote
+4. **Checks the ESP is big enough for two deployments** — it measures the image's own
+   `vmlinuz + initramfs.img` and compares against the ESP's free space, as a backstop after the grow.
+5. `bootc install to-existing-root --composefs-backend --bootloader systemd` (plain bootc).
+6. **Restores** every backed-up entry bootc removed — *except* `EFI/`, which bootc just wrote
    systemd-boot into. If bootc wrote in place without reformatting, each entry survives and is left
    as-is. Either way the machine boots and the Asahi identity/firmware source is preserved.
 
@@ -120,6 +126,10 @@ error: Upgrading composefs: … Setting up BLS boot: … Writing initrd to path:
 
 An omarchy-atomic machine never uses that `/boot` partition — so it is exactly the space the ESP is
 missing, and it sits directly after it.
+
+`deploy/omarchy-atomic-install` now does this automatically before it installs, so a fresh install
+needs no manual step. Run `omarchy-atomic-grow-esp` by hand only to grow an **already-installed**
+machine (before `bootc upgrade`), or to inspect the plan with `--dry-run` first:
 
 ```sh
 sudo umount /boot                                  # note the device first: findmnt /boot
