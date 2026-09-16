@@ -54,12 +54,21 @@ jobs:
       - name: Install test dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y jq ripgrep python3
+          sudo apt-get install -y jq ripgrep python3 lua5.4 imagemagick plocate
+          # Tests invoke `lua` and `magick`; Ubuntu ships the versioned lua binary and,
+          # on IM6, only `convert`. Provide the names the suite expects.
+          sudo ln -sf /usr/bin/lua5.4 /usr/local/bin/lua
+          command -v magick >/dev/null || sudo ln -sf "$(command -v convert)" /usr/local/bin/magick
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "20"
+
+      - name: Set up mise
+        uses: jdx/mise-action@v2
+        with:
+          install: false
 
       # Several shell tests assert packaging coverage against the omarchy-pkgs PKGBUILD tree.
       # Provide a checkout and point the suite at it via OMARCHY_PKGS_PATH.
