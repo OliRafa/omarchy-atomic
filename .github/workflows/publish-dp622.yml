@@ -1,0 +1,112 @@
+name: publish-dp622 (test image)
+
+# On-demand build + push + sign of the PR #622 DP-alt hotplug TEST image:
+#
+#   ghcr.io/<owner>/omarchy-atomic-fairydust-core-dp622:44
+#
+# It is the fairydust-core swap, but FROM the already-published core and consuming the PATCHED
+# fairydust kernel (build that first: OliRafa/omarchy-fairydust-kernel -> build-dp622 ->
+# ghcr.io/<owner>/omarchy-fairydust-kernel:<fdk_tag>). Signed keyless (GitHub OIDC) like
+# publish.yml so it satisfies the same on-device policy.json. Separate from production
+# fairydust-core; never runs automatically. aarch64 runner.
+on:
+  workflow_dispatch:
+    inputs:
+      fdk_tag:
+        description: "patched fairydust kernel tag on GHCR"
+        required: false
+        default: "44-dp622"
+
+concurrency:
+  group: publish-dp622-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write        # cosign keyless (Fulcio/Rekor via GitHub OIDC)
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 90
+    env:
+      FEDORA: "44"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute image refs (GHCR requires a lowercase namespace)
+        id: refs
+        run: |
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          {
+            echo "core=ghcr.io/$owner/omarchy-atomic-core"
+            echo "fdk=ghcr.io/$owner/omarchy-fairydust-kernel:${{ github.event.inputs.fdk_tag }}"
+            echo "out=ghcr.io/$owner/omarchy-atomic-fairydust-core-dp622"
+            echo "sha=${GITHUB_SHA::12}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Free up runner disk (image builds are space-hungry)
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: true
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+
+      - name: Install podman
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends podman
+
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      # FROM the published core (no rebuild) + the patched kernel. Mirrors the fairydust-core swap;
+      # the Containerfile rebuilds the composefs initramfs and runs `bootc container lint`.
+      - name: Build fairydust-core-dp622 image
+        run: |
+          set -euo pipefail
+          podman build -f images/fairydust-core/Containerfile \
+            --build-arg BASE="${{ steps.refs.outputs.core }}" \
+            --build-arg TAG="$FEDORA" \
+            --build-arg FDK_IMAGE="${{ steps.refs.outputs.fdk }}" \
+            -t "omarchy-atomic-fairydust-core-dp622:$FEDORA" .
+
+      - name: Tag, push, and record digest
+        id: push
+        run: |
+          set -euo pipefail
+          out="${{ steps.refs.outputs.out }}"
+          sha="${{ steps.refs.outputs.sha }}"
+          for t in "$FEDORA" "$FEDORA-$sha" latest; do
+            podman tag "omarchy-atomic-fairydust-core-dp622:$FEDORA" "$out:$t"
+          done
+          podman push "$out:$FEDORA" --digestfile out.digest
+          podman push "$out:$FEDORA-$sha"
+          podman push "$out:latest"
+          echo "ref=$out@$(cat out.digest)" >> "$GITHUB_OUTPUT"
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign image (keyless)
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}"
+          cosign sign "${{ steps.push.outputs.ref }}"
+
+      - name: Summary
+        run: |
+          {
+            echo "### Published + signed test image"
+            echo ""
+            echo "- \`${{ steps.push.outputs.ref }}\`"
+            echo "- kernel: \`${{ steps.refs.outputs.fdk }}\`"
+            echo ""
+            echo "Boot it: \`sudo bootc switch ${{ steps.refs.outputs.out }}:$FEDORA\` (then reboot with the monitor attached)"
+          } >> "$GITHUB_STEP_SUMMARY"
