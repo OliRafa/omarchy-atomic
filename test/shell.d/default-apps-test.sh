@@ -240,33 +240,23 @@ pass "Chromium browser installer restores the complete Omarchy setup"
 
 : >"$install_log"
 : >"$setup_log"
-rm -f "$installed_dir/firefox"
+rm -f "$installed_dir/org.mozilla.firefox"
 OMARCHY_TEST_REAL_BROWSER_INSTALL=true omarchy-default-browser --install firefox >/dev/null
-[[ $(<"$install_log") == "pkg:firefox" ]] || fail "Firefox browser installer installs the package"
+grep -Fxq 'flatpak-install:org.mozilla.firefox' "$install_log" ||
+  fail "Firefox browser installer installs the Flatpak from Flathub"
 [[ $(omarchy-default-browser) == "firefox" ]] || fail "Firefox becomes the default after its full installer succeeds"
-grep -Fxq 'sudo:install -d -m 0755 -o root -g root /usr/lib/firefox/distribution' "$setup_log" ||
-  fail "Firefox browser installer creates its distribution directory"
-grep -Fxq 'sudo:find /usr/lib/firefox/distribution -mindepth 1 -maxdepth 1 ! -user root -exec rm -rf -- {} +' "$setup_log" ||
-  fail "Firefox browser installer drops non-root files from its distribution directory"
-grep -Fxq "sudo:install -m 644 -o root -g root -T $ROOT/default/firefox/policies.json /usr/lib/firefox/distribution/policies.json" "$setup_log" ||
-  fail "Firefox browser installer copies policies.json without following a destination symlink"
-[[ -e $installed_dir/firefox ]] || fail "Firefox browser installer marks firefox installed"
-pass "Firefox browser installer restores the complete Omarchy setup"
+[[ -e $installed_dir/org.mozilla.firefox ]] || fail "Firefox browser installer marks firefox installed"
+pass "Firefox browser installer installs the Flatpak from Flathub"
 
 : >"$install_log"
 : >"$setup_log"
-rm -f "$installed_dir/zen-browser"
+rm -f "$installed_dir/app.zen_browser.zen"
 OMARCHY_TEST_REAL_BROWSER_INSTALL=true omarchy-default-browser --install zen >/dev/null
-[[ $(<"$install_log") == "pkg:zen-browser-bin" ]] || fail "Zen browser installer installs the package"
+grep -Fxq 'flatpak-install:app.zen_browser.zen' "$install_log" ||
+  fail "Zen browser installer installs the Flatpak from Flathub"
 [[ $(omarchy-default-browser) == "zen" ]] || fail "Zen becomes the default after its full installer succeeds"
-grep -Fxq 'sudo:install -d -m 0755 -o root -g root /opt/zen-browser/distribution' "$setup_log" ||
-  fail "Zen browser installer creates its distribution directory"
-grep -Fxq 'sudo:find /opt/zen-browser/distribution -mindepth 1 -maxdepth 1 ! -user root -exec rm -rf -- {} +' "$setup_log" ||
-  fail "Zen browser installer drops non-root files from its distribution directory"
-grep -Fxq "sudo:install -m 644 -o root -g root -T $ROOT/default/firefox/policies.json /opt/zen-browser/distribution/policies.json" "$setup_log" ||
-  fail "Zen browser installer copies policies.json without following a destination symlink"
-[[ -e $installed_dir/zen-browser ]] || fail "Zen browser installer marks zen-browser installed"
-pass "Zen browser installer restores the complete Omarchy setup"
+[[ -e $installed_dir/app.zen_browser.zen ]] || fail "Zen browser installer marks zen installed"
+pass "Zen browser installer installs the Flatpak from Flathub"
 
 omarchy-default-browser zen
 rm -f "$installed_dir/org.chromium.Chromium"
