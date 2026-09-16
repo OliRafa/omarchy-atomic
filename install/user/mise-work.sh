@@ -9,7 +9,12 @@ mkdir -p "$HOME/Work/tries"
 # whenever it is not there.
 NODE_TARBALL=""
 if [[ ${OMARCHY_SETUP_CONTEXT:-runtime} == "iso-chroot" ]]; then
-  NODE_TARBALL=$(find /opt/packages -name "node-v*-linux-$(uname -m | sed 's/x86_64/x64/;s/aarch64/arm64/').tar.gz" -type f 2>/dev/null | head -n1)
+  case "$(uname -m)" in
+    x86_64) NODE_TARBALL_ARCH=x64 ;;
+    aarch64) NODE_TARBALL_ARCH=arm64 ;;
+    *) NODE_TARBALL_ARCH=$(uname -m) ;;
+  esac
+  NODE_TARBALL=$(find /opt/packages -name "node-v*-linux-${NODE_TARBALL_ARCH}.tar.gz" -type f 2>/dev/null | head -n1)
 fi
 
 if [[ -n $NODE_TARBALL ]]; then
