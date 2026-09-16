@@ -2,9 +2,11 @@
 
 [Foot](https://codeberg.org/dnkl/foot) is the default terminal for Omarchy. It's fast, lightweight, and compatible with even old computers. It does not, however, support native tabs or splits.
 
-If you use Tmux, you may not mind, but if not, we fully support _Alacritty_, _Ghostty_, and _Kitty_ as options as well. Pick your preference under _Install > Terminal_ in the Omarchy menu.
+If you use Tmux, you may not mind, but if not, you can install _Kitty_ under _Install > Terminal_ in the Omarchy menu — it's delivered through [Homebrew](https://brew.sh/), the same as Omarchy's other CLI tools.
 
-You start a new terminal using `Super + Return`. (This binding will automatically point to whichever Terminal you've installed via _Install > Terminal_, and you can switch between installed terminals under _Setup > Defaults > Terminal_.)
+_Alacritty_ and _Ghostty_ are still perfectly good terminals, but they aren't published on Flathub or as Homebrew Linux builds, so Omarchy no longer installs them for you — that part is on you. Install either one however you prefer (for example `sudo dnf install alacritty`), then make it your default by putting its desktop entry (`Alacritty.desktop` or `com.mitchellh.ghostty.desktop`) on the first line of `~/.config/xdg-terminals.list`. Everything else — `Super + Return`, theming — follows along once that entry is in place.
+
+You start a new terminal using `Super + Return`. (This binding will automatically point to whichever Terminal you've set up, and you can switch between Foot and Kitty under _Setup > Defaults > Terminal_.)
 
 ## Tmux
 

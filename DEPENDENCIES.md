@@ -51,7 +51,7 @@ by Fedora, and each one is a person who can stop maintaining it.
 | COPR | What it provides | Notes |
 |---|---|---|
 | [`nclundell/fedora-extras`](https://copr.fedorainfracloud.org/coprs/nclundell/fedora-extras/) | `lazydocker`, `bottom`, `nushell`, `yazi`, and others | assorted TUIs |
-| [`scottames/ghostty`](https://copr.fedorainfracloud.org/coprs/scottames/ghostty/) | `ghostty` | only needed by `omarchy-install-terminal ghostty`. The default terminal is alacritty, so this must never be required - it used to be, pointing at a COPR that did not exist, and that alone killed every install. |
+| [`scottames/ghostty`](https://copr.fedorainfracloud.org/coprs/scottames/ghostty/) | `ghostty` | Omarchy no longer installs Ghostty (it is not on Flathub or Homebrew for Linux), but the COPR stays enabled so a user who wants it can `dnf install ghostty` themselves. Optional, so a missing ghostty must never fail an install. |
 
 The compositor package is chosen at install time by `install/helpers/fedora-hyprland.sh`, not listed
 in `omarchy-base.packages.fedora`. `lionheartp/Hyprland` builds stable `hyprland` once per release
@@ -72,13 +72,10 @@ lists both as dead repos so upgrades remove them from existing installs.
 | Repository | Provides | Added by |
 |---|---|---|
 | [`repo.nordvpn.com`](https://repo.nordvpn.com/yum/nordvpn/centos/) | `nordvpn` | `omarchy-install-service-nordvpn` |
-| [`brave-browser-rpm-release.s3.brave.com`](https://brave-browser-rpm-release.s3.brave.com/) | `brave-browser`, `brave-origin` | `omarchy-install-browser brave` / `brave-origin` |
 
-Brave's own repository is where the fork gets both browsers; upstream installs `brave-bin` and
-`brave-origin-bin` from the AUR, which does not exist here. The key is imported with `rpm --import`
-before the repo file is written, so `gpgcheck` stays on. Note that the package is named
-`brave-origin` here, not the `brave-origin-bin` upstream renamed to - and it is already the stable
-release, so upstream's beta-to-stable migration is a no-op on Fedora.
+Browsers no longer use a vendor repo: `omarchy-install-browser` installs every browser (Chromium,
+Chrome, Brave, Firefox, Zen) as a Flatpak from Flathub, so there is no Brave RPM repository to add.
+Chromium is the shipped default, delivered through the Flatpak preinstall manifest.
 
 Not a COPR and not enabled by default: nothing installs it until the user picks NordVPN from the
 menu. NordVPN supports Fedora 32+ officially and publishes aarch64 builds. Their documented method
@@ -174,8 +171,9 @@ covers what dnf cannot reach:
 
 No AUR, no `pacman`/`yay`/`paru`, no `mkinitcpio`, no `limine` - those are upstream Omarchy's, and
 every path here goes through `dnf`, `rpm` and COPR instead. Boot and initramfs are `dracut` and
-`grub-btrfs`. The default terminal is `alacritty`, not ghostty; foot, ghostty and kitty are
-available through `omarchy-install-terminal`, and their configs ship pre-seeded either way. No waybar, walker, elephant, mako or swayosd
+`grub-btrfs`. The default terminal is `foot` (native, in the core image); `kitty` is an opt-in
+Homebrew install through `omarchy-install-terminal`. Alacritty and Ghostty are no longer installed
+by Omarchy - users add those themselves - though their theme configs still ship pre-seeded. No waybar, walker, elephant, mako or swayosd
 either - quattro retired them, and the one Quickshell shell does all of it. x86-only hardware support
 (NVIDIA, Intel, Dell, ASUS, Lenovo, Framework) is present but never wired in: it is guarded by
 `omarchy-hw-*` checks that cannot match on Apple Silicon.

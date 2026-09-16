@@ -11,9 +11,10 @@
 # removes the Fedora remotes. Branch=stable because that is Flathub's branch (the flatpak default is
 # "master", which does not exist there).
 
-# --- Browser (was: chromium in core). User's default is Brave; also hosts web-apps. ---
-# bin/omarchy-launch-webapp is flatpak-aware; mimeapps.list maps http(s) -> com.brave.Browser.desktop.
-[Flatpak Preinstall com.brave.Browser]
+# --- Browser (was: chromium native in core). Chromium is the shipped default; also hosts web-apps. ---
+# bin/omarchy-launch-webapp is flatpak-aware; mimeapps.list maps http(s) -> org.chromium.Chromium.desktop.
+# Other browsers (Brave, Chrome, Firefox, Zen) are opt-in via `omarchy install browser <name>`.
+[Flatpak Preinstall org.chromium.Chromium]
 Branch=stable
 IsRuntime=false
 

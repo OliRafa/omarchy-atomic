@@ -20,8 +20,8 @@ COPR_REPOS=(
 )
 
 # Optional COPR repos (may not be available for all Fedora versions)
-# scottames/ghostty is only needed by `omarchy-install-terminal ghostty`; the default
-# terminal is alacritty, so a missing ghostty must never fail the install.
+# scottames/ghostty stays enabled so a user who wants Ghostty can `dnf install ghostty`
+# themselves (Omarchy no longer installs it); a missing ghostty must never fail the install.
 OPTIONAL_COPR_REPOS=(
   "nclundell/fedora-extras"
   "scottames/ghostty"

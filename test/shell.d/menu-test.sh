@@ -83,7 +83,7 @@ assert(menu.isVisible(visibilityItems, visibilityOrder, {}, visibilityItems.dyna
 
 // `disabled:` is the softer guard: the row stays listed and only loses the
 // cursor, which is how an already-installed app keeps its place in Install.
-const installed = menu.normalizeItem('install.browser.zen', { label: 'Zen', disabled: 'omarchy-pkg-present zen-browser-bin', action: 'install-zen' })
+const installed = menu.normalizeItem('install.browser.zen', { label: 'Zen', disabled: 'omarchy-flatpak-present app.zen_browser.zen', action: 'install-zen' })
 assert(menu.isVisible({ 'install.browser.zen': installed }, ['install.browser.zen'], { 'install.browser.zen': false }, installed), 'menu keeps a disabled row visible')
 assert(menu.isDisabled({ 'install.browser.zen': true }, installed), 'menu disables a row whose disabled: succeeded')
 assert(!menu.isDisabled({ 'install.browser.zen': false }, installed), 'menu leaves a row selectable when its disabled: failed')
@@ -253,8 +253,8 @@ assertDeepEqual(
   'menu sorts coding agents alphabetically'
 )
 const expectedDefaults = {
-  browser: ['Chromium', 'Chrome', 'Brave', 'Brave Origin', 'Edge', 'Firefox', 'Zen'],
-  terminal: ['Alacritty', 'Foot', 'Ghostty', 'Kitty'],
+  browser: ['Chromium', 'Chrome', 'Brave', 'Firefox', 'Zen'],
+  terminal: ['Foot', 'Kitty'],
   editor: ['Neovim', 'VSCode', 'Cursor', 'Zed', 'Sublime Text', 'Helix', 'Vim', 'Emacs']
 }
 assert(
@@ -285,7 +285,7 @@ assert(
 )
 assertEqual(
   defaultById['install.browser.zen'].disabled,
-  'omarchy-pkg-present zen-browser-bin',
+  'omarchy-flatpak-present app.zen_browser.zen',
   'menu asks the same presence question it used to hide the row with'
 )
 // A guard can still be about something other than having the software: no
@@ -297,7 +297,7 @@ assert(
 )
 assert(
   defaultItems.filter(item => item.id.startsWith('remove.')).every(item => !item.disabled)
-    && defaultById['remove.browser.zen'].when === 'omarchy-pkg-present zen-browser-bin',
+    && defaultById['remove.browser.zen'].when === 'omarchy-flatpak-present app.zen_browser.zen',
   'menu still hides Remove rows for software that is not installed'
 )
 assertDeepEqual(

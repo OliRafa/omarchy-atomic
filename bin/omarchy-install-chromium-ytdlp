@@ -8,7 +8,8 @@ HOST_NAME="com.omarchy.ytdlp"
 HOST_PATH="$OMARCHY_PATH/bin/omarchy-chromium-ytdlp-host"
 TEMPLATE="$OMARCHY_PATH/default/chromium/native-messaging-hosts/$HOST_NAME.json"
 
-# Chromium-based browser profile roots that use the NativeMessagingHosts layout.
+# Chromium-based browser profile roots that use the NativeMessagingHosts layout. The
+# Flatpak browsers keep the same layout under their own per-app config tree.
 browser_dirs=(
   "$HOME/.config/chromium"
   "$HOME/.config/google-chrome"
@@ -22,6 +23,9 @@ browser_dirs=(
   "$HOME/.config/BraveSoftware/Brave-Origin-Nightly"
   "$HOME/.config/microsoft-edge"
   "$HOME/.config/microsoft-edge-dev"
+  "$HOME/.var/app/org.chromium.Chromium/config/chromium"
+  "$HOME/.var/app/com.google.Chrome/config/google-chrome"
+  "$HOME/.var/app/com.brave.Browser/config/BraveSoftware/Brave-Browser"
 )
 
 manifest=$(sed "s|__HOST_PATH__|$HOST_PATH|g" "$TEMPLATE")
