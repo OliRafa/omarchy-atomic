@@ -41,13 +41,26 @@ install_etc systemd/system/docker.service.d/no-block-boot.conf
 install_etc systemd/system/plocate-updatedb.service.d/ac-only.conf
 install_etc systemd/user.conf.d/20-omarchy-nofile.conf
 
+# System kitty defaults. The shipped ~/.config/kitty/kitty.conf is upstream's
+# minimal user template; the actual defaults (font, keybindings, socket-only
+# remote control, tab bar) live here at /etc/xdg/kitty/kitty.conf, so this must
+# land or a fresh desktop gets none of them.
+install_etc xdg/kitty/kitty.conf
+
 # Sudoers drop-ins get validated after the copy: one bad file under
-# /etc/sudoers.d locks sudo for the whole machine.
+# /etc/sudoers.d locks sudo for the whole machine. visudo may be absent at
+# image-build time (the sudo package lands later), so only remove a file when
+# visudo actually reports it invalid — never merely because visudo is missing,
+# which would silently drop the vetted repo rules (e.g. omarchy-tzupdate).
 for name in omarchy-passwd-tries omarchy-tzupdate; do
   install -Dm440 "$omarchy_etc/sudoers.d/$name" "/etc/sudoers.d/$name"
-  if ! visudo -cf "/etc/sudoers.d/$name" >/dev/null; then
-    rm -f "/etc/sudoers.d/$name"
-    echo "[etc-files] WARNING: /etc/sudoers.d/$name failed visudo -c and was removed"
+  if command -v visudo >/dev/null 2>&1; then
+    if ! visudo -cf "/etc/sudoers.d/$name" >/dev/null; then
+      rm -f "/etc/sudoers.d/$name"
+      echo "[etc-files] WARNING: /etc/sudoers.d/$name failed visudo -c and was removed"
+    fi
+  else
+    echo "[etc-files] NOTE: visudo unavailable; kept /etc/sudoers.d/$name unvalidated"
   fi
 done
 
