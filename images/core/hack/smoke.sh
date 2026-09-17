@@ -239,6 +239,21 @@ command -v vi >/dev/null 2>&1 && ok "vi on PATH (from vim-minimal)" || no "vi no
 # cups-pdf runs a print backend as root; the CUPS hardening removes it, so it must not be baked in.
 rpm -q cups-pdf >/dev/null 2>&1 && no "cups-pdf present — the root PDF backend should be gone (CUPS hardening)" \
   || ok "cups-pdf absent (CUPS hardening)"
+# Claude browser extension for the Flatpak Chromium: the manifest is baked read-only in /etc and a
+# tmpfiles.d drop-in symlinks the Flatpak extension-point dir to it at boot. The /var symlink needs a
+# booted system + flatpak state, so assert the build-time payload and the drop-in here.
+claude_ext=/etc/omarchy/chromium-extensions/aarch64/1/extensions/fcoeoabgfenejglbffodgkkbkcdhcgfn.json
+if [ -f "$claude_ext" ] && grep -q 'clients2.google.com/service/update2/crx' "$claude_ext"; then
+  ok "Claude extension manifest baked in /etc"
+else
+  no "Claude extension manifest missing from /etc"
+fi
+if grep -q '/var/lib/flatpak/extension/org.chromium.Chromium.Extension.omarchy' \
+     /usr/lib/tmpfiles.d/omarchy-chromium-extensions.conf 2>/dev/null; then
+  ok "tmpfiles.d exposes the Chromium extension point"
+else
+  no "tmpfiles.d drop-in for the Chromium extension point missing"
+fi
 
 echo
 if [ "$fail" = 0 ]; then echo "CONTAINER SMOKE: PASS"; else echo "CONTAINER SMOKE: FAIL"; fi

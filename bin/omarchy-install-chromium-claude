@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# omarchy:summary=Install the Claude extension for Chromium-based browsers
+# omarchy:summary=Make the Claude extension available to the Flatpak Chromium
 # omarchy:requires-sudo=true
 
 set -euo pipefail
@@ -9,35 +9,40 @@ if (( EUID == 0 )); then
   export PATH=/usr/bin:/bin
 fi
 
-EXTENSION_ID="fcoeoabgfenejglbffodgkkbkcdhcgfn"
-EXTENSION_JSON='{ "external_update_url": "https://clients2.google.com/service/update2/crx" }'
-PACKAGED_PATH=/usr/bin/omarchy-install-chromium-claude
+# The shipped Chromium is the Flatpak org.chromium.Chromium, which reads external
+# extensions from its Flatpak extension point under /var/lib/flatpak/extension —
+# NOT the /usr/share/<browser>/extensions paths a native RPM/deb browser uses, and
+# never a runtime /usr write (which is read-only on the atomic image anyway). The
+# extension manifest is baked read-only at /etc/omarchy/chromium-extensions
+# (etc-files.sh). Expose it to the sandbox by symlinking the extension-point
+# DIRECTORY into the system Flatpak tree — Flatpak resolves a symlinked directory,
+# though not a symlinked file. This is the same link the image's tmpfiles.d creates
+# at boot; re-asserting it here covers git-clone installs and the
+# omarchy-default-agent Claude flow. It is a removable external-update offer, not a
+# force-install policy, so the user can still remove the extension in Chromium.
 
-# Brave and Brave Origin share Chromium's external extension directory.
-# Seed all supported browsers, including those installed after choosing Claude.
-EXTENSION_DIRS=(
-  /usr/share/chromium/extensions
-  /usr/share/google-chrome/extensions
-  /usr/share/microsoft-edge/extensions
-)
+PAYLOAD=/etc/omarchy/chromium-extensions
+LINK=/var/lib/flatpak/extension/org.chromium.Chromium.Extension.omarchy
 
-installed=true
-for dir in "${EXTENSION_DIRS[@]}"; do
-  if [[ ! -f $dir/$EXTENSION_ID.json ]] || [[ $(cat "$dir/$EXTENSION_ID.json") != "$EXTENSION_JSON" ]]; then
-    installed=false
-  fi
-done
+if [[ ! -d $PAYLOAD ]]; then
+  echo "omarchy-install-chromium-claude: $PAYLOAD is not installed; nothing to expose" >&2
+  exit 0
+fi
 
-if [[ $installed == "true" ]]; then
+# Already linked to the payload? Nothing to do — avoid a needless privilege prompt
+# (on the image, tmpfiles.d has already created this link at boot).
+if [[ -L $LINK && "$(readlink -f "$LINK")" == "$(readlink -f "$PAYLOAD")" ]]; then
   exit 0
 fi
 
 if (( EUID == 0 )); then
-  for dir in "${EXTENSION_DIRS[@]}"; do
-    printf '%s\n' "$EXTENSION_JSON" | install -D -m 0644 /dev/stdin "$dir/$EXTENSION_ID.json"
-  done
-elif [[ -t 0 ]]; then
-  exec sudo "$PACKAGED_PATH"
+  mkdir -p "$(dirname "$LINK")"
+  ln -sfn "$PAYLOAD" "$LINK"
 else
-  exec pkexec "$PACKAGED_PATH"
+  script="$(readlink -f "$0")"
+  if [[ -t 0 ]]; then
+    exec sudo "$script"
+  else
+    exec pkexec "$script"
+  fi
 fi

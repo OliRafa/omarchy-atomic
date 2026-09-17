@@ -47,6 +47,13 @@ install_etc systemd/user.conf.d/20-omarchy-nofile.conf
 # land or a fresh desktop gets none of them.
 install_etc xdg/kitty/kitty.conf
 
+# Claude browser extension manifest, baked read-only. The shipped Chromium is the
+# Flatpak org.chromium.Chromium, which reads external extensions from its Flatpak
+# extension point (/var/lib/flatpak/extension), not /usr/share/*/extensions. This
+# is the immutable payload; a tmpfiles.d symlink (image) / omarchy-install-chromium-claude
+# (git-clone) exposes the directory to the sandbox. Removable external-update offer.
+install_etc omarchy/chromium-extensions/aarch64/1/extensions/fcoeoabgfenejglbffodgkkbkcdhcgfn.json
+
 # Sudoers drop-ins get validated after the copy: one bad file under
 # /etc/sudoers.d locks sudo for the whole machine. visudo may be absent at
 # image-build time (the sudo package lands later), so only remove a file when
