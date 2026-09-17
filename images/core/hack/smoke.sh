@@ -236,6 +236,9 @@ for p in vim-minimal cups-pk-helper; do
   rpm -q "$p" >/dev/null 2>&1 && ok "$p installed" || no "$p missing from core"
 done
 command -v vi >/dev/null 2>&1 && ok "vi on PATH (from vim-minimal)" || no "vi not on PATH"
+# cups-pdf runs a print backend as root; the CUPS hardening removes it, so it must not be baked in.
+rpm -q cups-pdf >/dev/null 2>&1 && no "cups-pdf present — the root PDF backend should be gone (CUPS hardening)" \
+  || ok "cups-pdf absent (CUPS hardening)"
 
 echo
 if [ "$fail" = 0 ]; then echo "CONTAINER SMOKE: PASS"; else echo "CONTAINER SMOKE: FAIL"; fi

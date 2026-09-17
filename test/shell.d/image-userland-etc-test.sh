@@ -57,3 +57,12 @@ for pkg in qt6-qtmultimedia ffmpegthumbnailer vim-minimal cups-pk-helper; do
     fail "the core package set includes $pkg" "missing: $pkg"
 done
 pass "the core package set includes the native-feature system packages"
+
+# cups-pdf runs a print backend as root; the CUPS hardening (migration 1787815267) removes it, and
+# cups-hardening-test already forbids it in omarchy-base.packages. It must be gone from the image
+# sets too, or fresh installs would ship the backend the hardening exists to drop.
+for manifest in "$core" "$ROOT/install/omarchy-base.packages.fedora"; do
+  ! grep -qxE 'cups-pdf([[:space:]].*)?' "$manifest" ||
+    fail "cups-pdf is removed from the image package sets" "still in: ${manifest#"$ROOT/"}"
+done
+pass "cups-pdf is out of the image package sets (matches the CUPS hardening)"
