@@ -82,6 +82,7 @@ tmux
 gum
 less
 man-db
+vim-minimal
 tldr
 plocate
 socat
@@ -166,6 +167,7 @@ cups-browsed
 cups-filters
 cups-pdf
 system-config-printer
+cups-pk-helper
 nss-mdns
 avahi
 bolt
