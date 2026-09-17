@@ -215,6 +215,28 @@ else
   no "default target != graphical.target ($(systemctl get-default 2>/dev/null))"
 fi
 
+echo "== baked etc/ tree (etc-files.sh) + new base packages =="
+# The timezone menu runs 'sudo timedatectl' with no TTY, so it needs the NOPASSWD rule from the
+# repo etc/ tree. etc-files.sh (Containerfile step 4b via fedora-image-userland.sh) installs it;
+# without that step the repo etc/ never landed and the menu failed. This is the original bug.
+if [ -f /etc/sudoers.d/omarchy-tzupdate ] && grep -q timedatectl /etc/sudoers.d/omarchy-tzupdate; then
+  ok "/etc/sudoers.d/omarchy-tzupdate present (timezone menu has its NOPASSWD rule)"
+else
+  no "/etc/sudoers.d/omarchy-tzupdate missing — the timezone menu would fail without a TTY"
+fi
+# The shipped ~/.config/kitty/kitty.conf is minimal; the real defaults live in /etc/xdg, which
+# etc-files.sh installs. socket-only is the secure remote-control default (never unrestricted).
+if grep -q '^allow_remote_control socket-only' /etc/xdg/kitty/kitty.conf 2>/dev/null; then
+  ok "/etc/xdg/kitty/kitty.conf shipped (socket-only remote control)"
+else
+  no "/etc/xdg/kitty/kitty.conf missing or not socket-only — kitty would ship no defaults"
+fi
+# Native-feature base packages added to the core set.
+for p in vim-minimal cups-pk-helper; do
+  rpm -q "$p" >/dev/null 2>&1 && ok "$p installed" || no "$p missing from core"
+done
+command -v vi >/dev/null 2>&1 && ok "vi on PATH (from vim-minimal)" || no "vi not on PATH"
+
 echo
 if [ "$fail" = 0 ]; then echo "CONTAINER SMOKE: PASS"; else echo "CONTAINER SMOKE: FAIL"; fi
 exit "$fail"
