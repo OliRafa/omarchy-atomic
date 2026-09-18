@@ -1,9 +1,9 @@
 #!/bin/bash
 
 # A file Omarchy writes into /usr belongs to nobody, and the
-# day a package starts shipping that same path, pacman refuses the upgrade for
-# everyone who has the file. omarchy-update-system-pkgs-when-conflicted recovers from
-# that, but the cheaper answer is to ship the file in the package instead.
+# day a package starts shipping that same path, the package manager refuses the
+# upgrade for everyone who has the file. The cheaper answer is to ship the file
+# in the package instead of writing it into /usr from a script.
 #
 # This flags a script writing such a path unless a PKGBUILD installs it, or it
 # is recorded below with the reason it cannot be packaged.
@@ -34,10 +34,10 @@ allowed = {
   # is written. It drops configuration into another project's tree rather than
   # Omarchy's, which is why it is not a candidate for omarchy-settings.
   "/usr/share/chromium/extensions",
-  # Static content that belongs in omarchy-settings. It cannot move there in the
-  # same release that first ships omarchy-update-system-pkgs-when-conflicted: the
-  # upgrade carrying the handler is the one that would hit the conflict, and the
-  # handler only helps once it is on disk. Package it the release after.
+  # Static content that belongs in omarchy-settings, to be packaged in a later
+  # release: moving it in the same release that first writes it would hit the
+  # very upgrade conflict this test guards against, before the package owns the
+  # path.
   "/usr/lib/chromium/initial_preferences",
   # mkinitcpio's own pacman hooks. The Asahi install disables them by appending
   # .disabled and moves them back afterwards, so Omarchy only ever renames files
