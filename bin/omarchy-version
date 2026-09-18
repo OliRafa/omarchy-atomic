@@ -19,7 +19,8 @@ fi
 
 # The edge channel installs omarchy-dev instead of omarchy, so check both.
 for package in omarchy-dev omarchy; do
-  version=$(pacman -Q "$package" 2>/dev/null | awk '{ print $2 }')
+  rpm -q "$package" &>/dev/null || continue
+  version=$(rpm -q --qf '%{VERSION}-%{RELEASE}\n' "$package" | head -1)
   [[ -n $version ]] && break
 done
 
