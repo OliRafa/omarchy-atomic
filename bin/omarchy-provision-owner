@@ -707,11 +707,13 @@ user_groups() {
       [[ -n $group ]] || continue
       # Never replay old privileged group defaults. Docker is always opt-in.
       # Input is only retained when the factory image has one of the features
-      # whose installer deliberately grants access to raw input devices.
+      # whose installer deliberately grants access to raw input devices. Query
+      # rpm directly (this is the Fedora fork; there is no pacman), matching the
+      # names the controller/ydotool installers install and verify themselves.
       [[ $group == "docker" ]] && continue
       if [[ $group == "input" ]] &&
-        ! pacman -Qq xpadneo-dkms &>/dev/null &&
-        ! pacman -Qq ydotool &>/dev/null; then
+        ! rpm -q xpadneo-dkms &>/dev/null &&
+        ! rpm -q ydotool &>/dev/null; then
         continue
       fi
       getent group "$group" >/dev/null || continue

@@ -13,12 +13,16 @@ trap 'rm -rf "$TMPDIR"' EXIT
 # First-boot provisioning must not replay old privileged defaults.
 mkdir -p "$TMPDIR/bin"
 printf '#!/bin/bash\nexit 0\n' >"$TMPDIR/bin/getent" # every group "exists"
-cat >"$TMPDIR/bin/pacman" <<'STUB'
+# This is the Fedora fork: user_groups() queries rpm, not pacman. Stub rpm so
+# STUB_PACKAGES controls which packages read as installed. (A pacman stub used to
+# live here and hid the bug: on a real Fedora box pacman is absent, so the input
+# guard always tripped and silently dropped the group.)
+cat >"$TMPDIR/bin/rpm" <<'STUB'
 #!/bin/bash
-[[ $1 == "-Qq" ]] || exit 2
+[[ $1 == "-q" ]] || exit 2
 [[ " ${STUB_PACKAGES:-} " == *" $2 "* ]]
 STUB
-chmod +x "$TMPDIR/bin/getent" "$TMPDIR/bin/pacman"
+chmod +x "$TMPDIR/bin/getent" "$TMPDIR/bin/rpm"
 export PATH="$TMPDIR/bin:$PATH"
 
 PROVISIONING_DIR="$TMPDIR/prov"
