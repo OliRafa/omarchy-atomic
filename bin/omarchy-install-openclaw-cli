@@ -2,24 +2,23 @@
 
 # omarchy:summary=Ensure the OpenClaw CLI is installed for the default agent
 # omarchy:args=[--check|--now]
-# omarchy:requires-sudo=true
 
-# OpenClaw is not a mise tool: the openclaw pacman package is the one OpenClaw
-# installation on the machine — the CLI, the gateway, and the Install > AI web
-# app all share it, and the fast ring keeps it current. The default-agent flow
-# talks to that package through the same --check/--now contract mise-backed
-# agents get from mise itself.
+# OpenClaw ships as the official npm package `openclaw` — the CLI, the gateway,
+# and the Install > AI Control UI web app all come from it. mise builds it a
+# user-scoped wrapper (there is no Arch package on this fork), and the
+# default-agent flow talks to it through the same --check/--now contract every
+# mise-backed agent gets.
 
 set -euo pipefail
 
 case "${1:---now}" in
 --check)
-  omarchy-pkg-present openclaw
+  omarchy-cmd-present openclaw
   ;;
 --now)
-  if ! omarchy-pkg-present openclaw; then
+  if ! omarchy-cmd-present openclaw; then
     echo "Installing OpenClaw..."
-    omarchy-pkg-add openclaw
+    omarchy-mise-install npm:openclaw openclaw
   fi
   ;;
 *)

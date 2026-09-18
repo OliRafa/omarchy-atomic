@@ -97,6 +97,14 @@ exit 1
 SCRIPT
 chmod +x "$tmp_dir/bin/openclaw"
 
+# The remover tears down the mise-backed npm:openclaw tool; stub mise so the
+# sandbox records the teardown instead of touching the real global config.
+cat >"$tmp_dir/bin/mise" <<'SCRIPT'
+#!/bin/bash
+printf 'mise:%s\n' "$*" >>"$TEST_LOG"
+SCRIPT
+chmod +x "$tmp_dir/bin/mise"
+
 fresh_openclaw_home() {
   fresh_home
   mkdir -p "$HOME/.config/systemd/user/default.target.wants" "$HOME/.openclaw" \
@@ -146,6 +154,10 @@ for unit in openclaw-gateway.service openclaw-node.service; do
 done
 pass "OpenClaw removal stops the gateway service"
 
+grep -q '^mise:rm -g npm:openclaw$' "$TEST_LOG" ||
+  fail "OpenClaw removal tears down the mise-backed CLI"
+pass "OpenClaw removal tears down the mise-backed CLI"
+
 # Without a terminal there is nobody to ask, so the state stays and gum is
 # never invoked (a gum that answered "yes" on its own would be a data loss).
 [[ -f $HOME/.openclaw/openclaw.json ]] || fail "OpenClaw removal keeps the user's agent state"
@@ -185,8 +197,8 @@ systemctl_calls_after=$(grep -c '^systemctl:' "$TEST_LOG" || true)
   fail "OpenClaw removal leaves systemd alone when onboarding never ran"
 pass "OpenClaw removal leaves systemd alone when onboarding never ran"
 
-# A gateway that will not stop aborts the removal before the package drop:
-# pacman would otherwise strand the live process on deleted code.
+# A gateway that will not stop aborts the removal before the mise teardown:
+# dropping the tool would otherwise strand the live process on removed code.
 cat >"$tmp_dir/bin/openclaw" <<'SCRIPT'
 #!/bin/bash
 printf 'openclaw:%s\n' "$*" >>"$TEST_LOG"
@@ -202,17 +214,17 @@ exit 0
 SCRIPT
 chmod +x "$tmp_dir/bin/systemctl"
 
-drop_calls_before=$(grep -c '^drop:openclaw$' "$TEST_LOG" || true)
+mise_rm_before=$(grep -c '^mise:rm -g npm:openclaw$' "$TEST_LOG" || true)
 fresh_openclaw_home
 rc=0
 "$ROOT/bin/omarchy-remove-ai-openclaw" >/dev/null 2>&1 || rc=$?
-drop_calls_after=$(grep -c '^drop:openclaw$' "$TEST_LOG" || true)
+mise_rm_after=$(grep -c '^mise:rm -g npm:openclaw$' "$TEST_LOG" || true)
 
 [[ $rc != 0 ]] || fail "OpenClaw removal aborts when the gateway cannot be stopped"
 [[ -f $HOME/.config/systemd/user/openclaw-gateway.service ]] ||
   fail "OpenClaw removal aborts when the gateway cannot be stopped" "unit file deleted"
-[[ $drop_calls_before == "$drop_calls_after" ]] ||
-  fail "OpenClaw removal aborts when the gateway cannot be stopped" "package dropped anyway"
+[[ $mise_rm_before == "$mise_rm_after" ]] ||
+  fail "OpenClaw removal aborts when the gateway cannot be stopped" "the mise tool was torn down anyway"
 pass "OpenClaw removal aborts when the gateway cannot be stopped"
 
 # An unreachable user manager is not a stopped gateway: every probe failing
@@ -233,6 +245,6 @@ rc=0
 [[ $rc != 0 ]] || fail "OpenClaw removal aborts when systemd cannot be reached"
 [[ -f $HOME/.config/systemd/user/openclaw-gateway.service ]] ||
   fail "OpenClaw removal aborts when systemd cannot be reached" "unit file deleted"
-! grep -q '^drop:openclaw$' "$TEST_LOG" ||
-  fail "OpenClaw removal aborts when systemd cannot be reached" "package dropped anyway"
+! grep -q '^mise:rm -g npm:openclaw$' "$TEST_LOG" ||
+  fail "OpenClaw removal aborts when systemd cannot be reached" "the mise tool was torn down anyway"
 pass "OpenClaw removal aborts when systemd cannot be reached"
