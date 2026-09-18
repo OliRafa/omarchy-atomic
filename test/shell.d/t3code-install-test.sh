@@ -12,10 +12,10 @@ mock_bin="$test_tmp/bin"
 mkdir -p "$mock_bin"
 
 # Run the real theme refresh, renderer and publisher in a throwaway home.
-# Only package installation, the T3 CLI and desktop launch are stubbed.
-cat >"$mock_bin/omarchy-pkg-add" <<'SH'
+# Only the mise install (npm:t3), the T3 CLI and desktop launch are stubbed.
+cat >"$mock_bin/omarchy-mise-install" <<'SH'
 #!/bin/bash
-[[ $1 == "t3code-bin" ]]
+[[ $1 == "npm:t3" && $2 == "t3" ]] || { echo "unexpected mise-install: $*" >&2; exit 1; }
 SH
 
 cat >"$mock_bin/t3" <<'SH'

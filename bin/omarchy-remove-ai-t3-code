@@ -1,11 +1,14 @@
 #!/bin/bash
 
 # omarchy:summary=Remove T3 Code along with its configuration and workspaces.
-# omarchy:requires-sudo=true
 
 set -e
 
-omarchy-pkg-drop t3code-bin
+# T3 Code is the mise-backed npm:t3 tool; drop the mise install and the wrapper
+# stub omarchy-install-ai-t3-code wrote.
+mise rm -g npm:t3 >/dev/null 2>&1 || true
+mise uninstall --all npm:t3 >/dev/null 2>&1 || true
+rm -f "$HOME/.local/bin/t3"
 
 # T3 Code drives agents that keep their own state -- ~/.claude.json, ~/.grok,
 # ~/.local/share/opencode -- and those outlive it, so only its own goes.
