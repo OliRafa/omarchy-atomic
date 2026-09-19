@@ -10,7 +10,7 @@
 OUTPUT_DIR="${OMARCHY_SCREENRECORD_DIR:-${XDG_VIDEOS_DIR:-$HOME/Videos}}"
 
 if [[ ! -d $OUTPUT_DIR ]]; then
-  notify-send "Screen recording directory does not exist: $OUTPUT_DIR" -u critical -t 3000
+  omarchy-notification-send -u critical -t 3000 "Screen recording directory does not exist: $OUTPUT_DIR"
   exit 1
 fi
 
@@ -20,7 +20,7 @@ WEBCAM="false"
 WEBCAM_DEVICE=""
 RESOLUTION=""
 STOP_RECORDING="false"
-RECORDING_FILE="/tmp/omarchy-screenrecord-filename"
+RECORDING_FILE="${XDG_RUNTIME_DIR:-/tmp}/omarchy-screenrecord-filename"
 
 for arg in "$@"; do
   case "$arg" in
@@ -40,7 +40,7 @@ start_webcam_overlay() {
   if [[ -z $WEBCAM_DEVICE ]]; then
     WEBCAM_DEVICE=$(v4l2-ctl --list-devices 2>/dev/null | grep -m1 "^[[:space:]]*/dev/video" | tr -d '\t')
     if [[ -z $WEBCAM_DEVICE ]]; then
-      notify-send "No webcam devices found" -u critical -t 3000
+      omarchy-notification-send -u critical -t 3000 "No webcam devices found"
       return 1
     fi
   fi
@@ -129,7 +129,7 @@ stop_screenrecording() {
   if pgrep -f "\b(wf-recorder|gpu-screen-recorder)\b" >/dev/null; then
     pkill -9 -f "\b(wf-recorder|gpu-screen-recorder)\b" 2>/dev/null || true
     cleanup_webcam
-    notify-send "Screen recording error" "Recording process had to be force-killed. Video may be corrupted." -u critical -t 5000
+    omarchy-notification-send -u critical -t 5000 "Screen recording error" "Recording process had to be force-killed. Video may be corrupted."
   else
     finalize_recording
     local filename=$(cat "$RECORDING_FILE" 2>/dev/null)
@@ -139,8 +139,7 @@ stop_screenrecording() {
     ffmpeg -y -i "$filename" -ss 00:00:00.1 -vframes 1 -q:v 2 "$preview" -loglevel quiet 2>/dev/null
 
     (
-      ACTION=$(notify-send "Screen recording saved" "Open with Super + Alt + , (or click this)" -t 10000 -i "${preview:-$filename}" -A "default=open")
-      [[ $ACTION == "default" ]] && mpv "$filename"
+      omarchy-notification-send -t 10000 -i "${preview:-$filename}" "Screen recording saved" "Open with Super + Alt + , (or click this)" --exec mpv "$filename"
       rm -f "$preview"
     ) &
   fi

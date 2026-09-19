@@ -11,7 +11,7 @@ fi
 # power-profiles-daemon is not guaranteed to be reachable on every Fedora Asahi machine, so fall
 # back to a single balanced profile. --active-state must still emit the active column the shell's
 # power panel parses (profile<TAB>1|0), or no profile ever reads as active.
-if ! command -v powerprofilesctl >/dev/null 2>&1; then
+if omarchy-cmd-missing powerprofilesctl; then
   if [[ ${1:-} == "--active-state" ]]; then
     printf 'balanced\t1\n'
   else

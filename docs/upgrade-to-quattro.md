@@ -65,7 +65,7 @@ while — Quickshell and a few other AUR packages are compiled on the machine.
    that path).
 5. Replaces the 3.x line in `~/.bashrc` with Quattro's two-line bootstrap.
 6. Moves `~/.config/hypr` to a `.bak` and copies in the Quattro defaults.
-7. Runs `omarchy-setup-system --upgrade`, `omarchy-finalize-user`, and
+7. Runs `omarchy-setup-system --upgrade`, `omarchy-provision-user`, and
    `omarchy-migrate`.
 8. Removes the retired Waybar/Walker/Mako/SwayOSD desktop stack and switches
    networking from iwd to NetworkManager.

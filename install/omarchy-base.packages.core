@@ -74,6 +74,7 @@ socat
 inotify-tools
 less
 man-db
+vim-minimal                 # provides the `vi` command expected by scripts and $EDITOR fallbacks
 plocate
 unzip
 util-linux-script
@@ -107,8 +108,10 @@ plymouth
 cups
 cups-browsed
 cups-filters
-cups-pdf
 system-config-printer
+cups-pk-helper              # PolicyKit-authenticated printer administration (matches the CUPS hardening)
+# cups-pdf is deliberately omitted: it runs a print backend as root, which the CUPS hardening
+# (migration 1787815267) removes. The desktop's Print-to-PDF goes through the GTK/Qt dialog.
 nss-mdns
 avahi
 bolt

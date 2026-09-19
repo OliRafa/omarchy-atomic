@@ -1,0 +1,100 @@
+name: Omarchy tests (CLI + shell)
+
+# Runs the Omarchy CLI and shell test suites (./test/all) on native aarch64. main.yml only
+# lints + syntax-checks + smoke-runs, and does not exercise these suites, so bin/ command logic,
+# menu wiring, and the shell tests otherwise go unvalidated by CI. This job closes that gap.
+on:
+  push:
+    branches: [main, quattro, v0.*]
+    paths:
+      - "bin/**"
+      - "test/**"
+      - "default/**"
+      - "install/**"
+      - "config/**"
+      - "migrations/**"
+      - ".github/workflows/tests.yml"
+  pull_request:
+    branches: [main, quattro, v0.*]
+    paths:
+      - "bin/**"
+      - "test/**"
+      - "default/**"
+      - "install/**"
+      - "config/**"
+      - "migrations/**"
+      - ".github/workflows/tests.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash -euo pipefail {0}
+
+jobs:
+  suites:
+    name: CLI + shell suites [aarch64]
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Assert we are on ARM64
+        run: |
+          arch=$(uname -m)
+          echo "Detected arch: $arch"
+          test "$arch" = "aarch64" || { echo "Not running on aarch64"; exit 1; }
+
+      - name: Install test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq ripgrep python3 lua5.4 imagemagick plocate ffmpeg desktop-file-utils
+          # xkbcli (keybinding-menu test); package name varies across releases, so best-effort.
+          sudo apt-get install -y libxkbcommon-tools || true
+          # Tests invoke `lua` and `magick`; Ubuntu ships the versioned lua binary and,
+          # on IM6, only `convert`. Provide the names the suite expects.
+          sudo ln -sf /usr/bin/lua5.4 /usr/local/bin/lua
+          command -v magick >/dev/null || sudo ln -sf "$(command -v convert)" /usr/local/bin/magick
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Set up mise
+        uses: jdx/mise-action@v2
+        with:
+          install: false
+
+      # Several shell tests assert packaging coverage against the omarchy-pkgs PKGBUILD tree.
+      # Provide a checkout and point the suite at it via OMARCHY_PKGS_PATH.
+      - name: Check out omarchy-pkgs (for packaging-coverage tests)
+        uses: actions/checkout@v4
+        with:
+          repository: omacom-io/omarchy-pkgs
+          path: omarchy-pkgs
+          fetch-depth: 1
+
+      - name: Command metadata check
+        run: bin/omarchy commands --check
+
+      - name: Bash/Python syntax check for bin/
+        run: |
+          for f in bin/omarchy-*; do
+            if head -1 "$f" | grep -q python; then
+              python3 -c 'import ast,sys; ast.parse(open(sys.argv[1]).read())' "$f"
+            else
+              bash -n "$f"
+            fi
+          done
+
+      - name: Run test suites
+        env:
+          OMARCHY_PKGS_PATH: ${{ github.workspace }}/omarchy-pkgs
+        run: ./test/all

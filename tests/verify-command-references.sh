@@ -27,8 +27,6 @@ KNOWN_EXTERNAL=(
   omarchy-webapp-handler # matched inside a grep pattern in omarchy-webapp-remove, not invoked
   omarchy-nvim-refresh   # omarchy-reinstall-configs guards it with omarchy-cmd-present; shipped only
   omarchy-nvim-setup     # by the optional upstream nvim package, which Fedora replaces with lazyvim
-  omarchy-settings       # an Arch package name in omarchy-dev-pkg-test's PKGS array, not a command
-  omarchy-settings-dev   # likewise a package name, not a command
 )
 
 # No files are skipped. Upstream's Arch-only omarchy-upgrade-to-quattro used to be excluded here

@@ -7,7 +7,7 @@
 # has nothing to drive and powerprofilesctl may be absent or report no profiles
 # at all. Bail out with a clear message instead of erroring out of every caller
 # (the shell's battery service calls this on every AC/battery transition).
-if ! command -v powerprofilesctl >/dev/null 2>&1; then
+if omarchy-cmd-missing powerprofilesctl; then
   echo "powerprofilesctl is not installed - power profiles are unavailable" >&2
   exit 0
 fi

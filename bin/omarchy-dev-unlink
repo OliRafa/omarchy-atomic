@@ -47,7 +47,7 @@ USAGE
     ;;
 esac
 
-default_target="$HOME/.local/share/omarchy"
+default_target="/usr/share/omarchy"
 
 printf 'export OMARCHY_PATH="%s"\n' "$default_target" | sudo tee /etc/omarchy.conf >/dev/null
 

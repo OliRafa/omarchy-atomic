@@ -14,7 +14,7 @@ Usage: omarchy setup system --install-user USER [--first-install|--upgrade]
 
 Runs root-owned Omarchy system setup. The ISO calls this in the target chroot
 after packages are installed and the target user exists. It also calls
-omarchy-setup-hardware, so hardware setup cannot be accidentally skipped.
+omarchy-apply-hardware, so hardware setup cannot be accidentally skipped.
 USAGE
 }
 
@@ -83,7 +83,7 @@ run_logged "$OMARCHY_INSTALL/config/snapper.sh"
 run_logged "$OMARCHY_INSTALL/config/enable-services.sh"
 run_logged "$OMARCHY_INSTALL/config/firewall.sh"
 
-omarchy-setup-hardware --install-user "$install_user"
+omarchy-apply-hardware --install-user "$install_user"
 
 run_logged "$OMARCHY_INSTALL/login/sddm.sh"
 

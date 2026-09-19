@@ -82,6 +82,7 @@ tmux
 gum
 less
 man-db
+vim-minimal
 tldr
 plocate
 socat
@@ -164,8 +165,10 @@ plymouth
 cups
 cups-browsed
 cups-filters
-cups-pdf
 system-config-printer
+cups-pk-helper
+# cups-pdf is deliberately omitted: it runs a print backend as root, which the CUPS hardening
+# (migration 1787815267) removes. The desktop's Print-to-PDF goes through the GTK/Qt dialog.
 nss-mdns
 avahi
 bolt

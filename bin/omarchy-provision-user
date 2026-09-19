@@ -25,7 +25,7 @@ USAGE
 }
 
 if (( EUID == 0 )); then
-  echo "Error: run omarchy-finalize-user as the user being configured, not as root." >&2
+  echo "Error: run omarchy-provision-user as the user being configured, not as root." >&2
   exit 1
 fi
 
@@ -82,11 +82,25 @@ fi
 
 # Dev-aware skill symlinks. Cannot live in /etc/skel because OMARCHY_PATH may
 # point at a dev checkout (omarchy dev link) where the target differs.
-mkdir -p ~/.agents/skills ~/.claude/skills ~/.codex/skills ~/.pi/agent/skills
-ln -sfn "$OMARCHY_PATH/default/omarchy-skill" ~/.agents/skills/omarchy
-ln -sfn "$OMARCHY_PATH/default/omarchy-skill" ~/.claude/skills/omarchy
-ln -sfn "$OMARCHY_PATH/default/omarchy-skill" ~/.codex/skills/omarchy
-ln -sfn "$OMARCHY_PATH/default/omarchy-skill" ~/.pi/agent/skills/omarchy
+# Loops every skill directory, so shipping a new one needs no edit here.
+mkdir -p ~/.agents/skills ~/.claude/skills ~/.codex/skills ~/.pi/agent/skills ~/.gemini/config/skills ~/.hermes/skills
+for skill in "$OMARCHY_PATH"/default/agents/skills/*/; do
+  skill=${skill%/}
+  name=${skill##*/}
+  ln -sfn "$skill" ~/.agents/skills/"$name"
+  ln -sfn "$skill" ~/.claude/skills/"$name"
+  ln -sfn "$skill" ~/.codex/skills/"$name"
+  ln -sfn "$skill" ~/.pi/agent/skills/"$name"
+  ln -sfn "$skill" ~/.gemini/config/skills/"$name"
+  ln -sfn "$skill" ~/.hermes/skills/"$name"
+  if [[ -d ~/.hermes/profiles ]]; then
+    for profile in ~/.hermes/profiles/*/; do
+      [[ -d $profile ]] || continue
+      mkdir -p "$profile/skills"
+      ln -sfn "$skill" "$profile/skills/$name"
+    done
+  fi
+done
 
 mkdir -p ~/Downloads ~/Pictures ~/Videos ~/.config/gtk-3.0
 xdg-user-dirs-update --set TEMPLATES "$HOME"

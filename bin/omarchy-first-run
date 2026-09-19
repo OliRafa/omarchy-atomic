@@ -42,7 +42,7 @@ if omarchy-done check "$FIRST_RUN_DONE" && (( force == 0 )); then
   exit 0
 fi
 
-omarchy-finalize-user "${finalize_user_args[@]}" || true
+omarchy-provision-user "${finalize_user_args[@]}" || true
 
 mkdir -p "$state_dir"
 

@@ -215,6 +215,46 @@ else
   no "default target != graphical.target ($(systemctl get-default 2>/dev/null))"
 fi
 
+echo "== baked etc/ tree (etc-files.sh) + new base packages =="
+# The timezone menu runs 'sudo timedatectl' with no TTY, so it needs the NOPASSWD rule from the
+# repo etc/ tree. etc-files.sh (Containerfile step 4b via fedora-image-userland.sh) installs it;
+# without that step the repo etc/ never landed and the menu failed. This is the original bug.
+if [ -f /etc/sudoers.d/omarchy-tzupdate ] && grep -q timedatectl /etc/sudoers.d/omarchy-tzupdate; then
+  ok "/etc/sudoers.d/omarchy-tzupdate present (timezone menu has its NOPASSWD rule)"
+else
+  no "/etc/sudoers.d/omarchy-tzupdate missing — the timezone menu would fail without a TTY"
+fi
+# The shipped ~/.config/kitty/kitty.conf is minimal; the real defaults live in /etc/xdg, which
+# etc-files.sh installs. socket-only is the secure remote-control default (never unrestricted).
+if grep -q '^allow_remote_control socket-only' /etc/xdg/kitty/kitty.conf 2>/dev/null; then
+  ok "/etc/xdg/kitty/kitty.conf shipped (socket-only remote control)"
+else
+  no "/etc/xdg/kitty/kitty.conf missing or not socket-only — kitty would ship no defaults"
+fi
+# Native-feature base packages added to the core set.
+for p in vim-minimal cups-pk-helper; do
+  rpm -q "$p" >/dev/null 2>&1 && ok "$p installed" || no "$p missing from core"
+done
+command -v vi >/dev/null 2>&1 && ok "vi on PATH (from vim-minimal)" || no "vi not on PATH"
+# cups-pdf runs a print backend as root; the CUPS hardening removes it, so it must not be baked in.
+rpm -q cups-pdf >/dev/null 2>&1 && no "cups-pdf present — the root PDF backend should be gone (CUPS hardening)" \
+  || ok "cups-pdf absent (CUPS hardening)"
+# Claude browser extension for the Flatpak Chromium: the manifest is baked read-only in /etc and a
+# tmpfiles.d drop-in symlinks the Flatpak extension-point dir to it at boot. The /var symlink needs a
+# booted system + flatpak state, so assert the build-time payload and the drop-in here.
+claude_ext=/etc/omarchy/chromium-extensions/aarch64/1/extensions/fcoeoabgfenejglbffodgkkbkcdhcgfn.json
+if [ -f "$claude_ext" ] && grep -q 'clients2.google.com/service/update2/crx' "$claude_ext"; then
+  ok "Claude extension manifest baked in /etc"
+else
+  no "Claude extension manifest missing from /etc"
+fi
+if grep -q '/var/lib/flatpak/extension/org.chromium.Chromium.Extension.omarchy' \
+     /usr/lib/tmpfiles.d/omarchy-chromium-extensions.conf 2>/dev/null; then
+  ok "tmpfiles.d exposes the Chromium extension point"
+else
+  no "tmpfiles.d drop-in for the Chromium extension point missing"
+fi
+
 echo
 if [ "$fail" = 0 ]; then echo "CONTAINER SMOKE: PASS"; else echo "CONTAINER SMOKE: FAIL"; fi
 exit "$fail"

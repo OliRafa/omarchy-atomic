@@ -50,7 +50,7 @@ jobs:
         id: list_scripts
         run: |
           # Exclude legacy migrations from lint/format to reduce noise
-          mapfile -t files < <(git ls-files | grep -E '\.sh$|^scripts/.*' | grep -v '^migrations/' || true)
+          mapfile -t files < <(git ls-files | grep -E '\.sh$|^scripts/.*' | grep -v '^migrations/' | grep -v '/fixtures/' || true)
           printf "%s\n" "${files[@]}"
           echo "count=${#files[@]}" >> "$GITHUB_OUTPUT"
 
@@ -65,7 +65,7 @@ jobs:
           # gives them no shebang. Shellcheck cannot infer a dialect without one and fails every
           # such file with SC2148, so name the shell for those instead of adding shebangs that the
           # next upstream sync would only drop again.
-          mapfile -t files < <(git ls-files | grep -E '\.sh$|^scripts/.*' | grep -v '^migrations/')
+          mapfile -t files < <(git ls-files | grep -E '\.sh$|^scripts/.*' | grep -v '^migrations/' | grep -v '/fixtures/')
 
           with_shebang=()
           without_shebang=()
@@ -92,7 +92,7 @@ jobs:
         if: steps.list_scripts.outputs.count != '0'
         run: |
           # Show diffs but don't fail the build on formatting; exclude migrations/
-          mapfile -t files < <(git ls-files | grep -E '\.sh$|^scripts/.*' | grep -v '^migrations/')
+          mapfile -t files < <(git ls-files | grep -E '\.sh$|^scripts/.*' | grep -v '^migrations/' | grep -v '/fixtures/')
           shfmt -i 2 -ci -d "${files[@]}" || true
 
   # 2) Syntax + smoke tests (safe, non-privileged)
@@ -123,7 +123,7 @@ jobs:
             echo "::group::bash -n $f"
             bash -n "$f"
             echo "::endgroup::"
-          done < <(git ls-files -z | grep -z -E '\.sh$|^scripts/.*')
+          done < <(git ls-files -z | grep -z -E '\.sh$|^scripts/.*' | grep -zv '/fixtures/')
 
       - name: Smoke run selected scripts in DRY_RUN/--help mode
         env:

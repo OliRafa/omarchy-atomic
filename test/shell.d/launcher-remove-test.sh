@@ -36,13 +36,16 @@ cat >"$tmp_dir/bin/update-desktop-database" <<'SCRIPT'
 SCRIPT
 chmod +x "$tmp_dir/bin/update-desktop-database"
 
-cat >"$tmp_dir/bin/pacman" <<'SCRIPT'
+# The Fedora fork resolves the owning package with `rpm -qf --qf '%{NAME}\n' <file>`.
+cat >"$tmp_dir/bin/rpm" <<'SCRIPT'
 #!/bin/bash
-if [[ $1 == "-Qqo" && $2 == */native.desktop ]]; then
+if [[ $1 == "-qf" && "${@: -1}" == */native.desktop ]]; then
   printf 'native-pkg\n'
+else
+  exit 1
 fi
 SCRIPT
-chmod +x "$tmp_dir/bin/pacman"
+chmod +x "$tmp_dir/bin/rpm"
 
 cat >"$tmp_dir/data/applications/Basecamp.desktop" <<'DESKTOP'
 [Desktop Entry]
@@ -86,7 +89,7 @@ pass "launcher remove routes web apps by desktop name"
 [[ ${lines[1]} == "tui:false:Docker" ]] || fail "launcher remove routes TUIs by desktop name" "${lines[1]}"
 pass "launcher remove routes TUIs by desktop name"
 
-[[ ${lines[2]} == "terminal::echo Uninstalling Native...; sudo pacman -Rns native-pkg" ]] || fail "launcher remove opens package uninstall flow" "${lines[2]}"
+[[ ${lines[2]} == "terminal::echo Uninstalling Native...; sudo dnf remove -y native-pkg" ]] || fail "launcher remove opens package uninstall flow" "${lines[2]}"
 pass "launcher remove opens package uninstall flow"
 
 [[ ! -e $tmp_dir/data/applications/aliens.desktop ]] || fail "launcher remove deletes user-owned desktop files"

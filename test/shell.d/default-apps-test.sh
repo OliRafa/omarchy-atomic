@@ -87,11 +87,13 @@ if [[ $installer == "omarchy-install-browser" && ${OMARCHY_TEST_REAL_BROWSER_INS
 fi
 
 case $installer in
-omarchy-pkg-add)
+omarchy-pkg-add|omarchy-pkg-aur-add)
   package=$1
   printf 'pkg:%s\n' "$package" >>"$OMARCHY_TEST_INSTALL_LOG"
   case $package in
   chromium) command=chromium ;;
+  firefox) command=firefox ;;
+  zen-browser-bin) command=zen-browser ;;
   cursor-bin) command=cursor ;;
   sublime-text-4) command=sublime_text ;;
   vim) command=vim ;;
@@ -132,6 +134,7 @@ SH
 
 for installer in \
   omarchy-pkg-add \
+  omarchy-pkg-aur-add \
   omarchy-install-browser \
   omarchy-install-terminal \
   omarchy-install-editor-vscode \
@@ -234,6 +237,26 @@ grep -Fxq 'omarchy-install-chromium-ytdlp:' "$setup_log" ||
 grep -Fxq 'omarchy-theme-set-browser:' "$setup_log" ||
   fail "Chromium browser installer applies the current theme"
 pass "Chromium browser installer restores the complete Omarchy setup"
+
+: >"$install_log"
+: >"$setup_log"
+rm -f "$installed_dir/org.mozilla.firefox"
+OMARCHY_TEST_REAL_BROWSER_INSTALL=true omarchy-default-browser --install firefox >/dev/null
+grep -Fxq 'flatpak-install:org.mozilla.firefox' "$install_log" ||
+  fail "Firefox browser installer installs the Flatpak from Flathub"
+[[ $(omarchy-default-browser) == "firefox" ]] || fail "Firefox becomes the default after its full installer succeeds"
+[[ -e $installed_dir/org.mozilla.firefox ]] || fail "Firefox browser installer marks firefox installed"
+pass "Firefox browser installer installs the Flatpak from Flathub"
+
+: >"$install_log"
+: >"$setup_log"
+rm -f "$installed_dir/app.zen_browser.zen"
+OMARCHY_TEST_REAL_BROWSER_INSTALL=true omarchy-default-browser --install zen >/dev/null
+grep -Fxq 'flatpak-install:app.zen_browser.zen' "$install_log" ||
+  fail "Zen browser installer installs the Flatpak from Flathub"
+[[ $(omarchy-default-browser) == "zen" ]] || fail "Zen becomes the default after its full installer succeeds"
+[[ -e $installed_dir/app.zen_browser.zen ]] || fail "Zen browser installer marks zen installed"
+pass "Zen browser installer installs the Flatpak from Flathub"
 
 omarchy-default-browser zen
 rm -f "$installed_dir/org.chromium.Chromium"

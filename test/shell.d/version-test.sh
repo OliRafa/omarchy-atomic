@@ -10,24 +10,27 @@ trap 'rm -rf "$test_tmp"' EXIT
 stub_bin="$test_tmp/bin"
 mkdir -p "$stub_bin"
 
-# The edge channel installs omarchy-dev. Older builds did not declare
-# provides=(omarchy), so a query for plain omarchy finds nothing there.
-cat >"$stub_bin/pacman" <<'STUB'
+# The edge channel installs omarchy-dev instead of plain omarchy, so a query for
+# omarchy finds nothing there. Stub rpm (the Fedora fork queries rpm, not pacman):
+# `rpm -q <pkg>` tests presence, `rpm -q --qf <fmt> <pkg>` prints the version.
+cat >"$stub_bin/rpm" <<'STUB'
 #!/bin/bash
-[[ $1 == "-Q" ]] || exit 1
+[[ $1 == "-q" ]] || exit 1
 shift
+qf=""
+[[ ${1:-} == "--qf" ]] && { qf="$2"; shift 2; }
 for package in "$@"; do
   case ",${OMARCHY_TEST_PACKAGES:-}," in
     *",$package,"*)
-      echo "$package ${OMARCHY_TEST_VERSION:-4.0.0-1}"
+      [[ -n $qf ]] && echo "${OMARCHY_TEST_VERSION:-4.0.0-1}"
       exit 0
       ;;
   esac
 done
-echo "error: package '$1' was not found" >&2
+echo "package '${*: -1}' is not installed" >&2
 exit 1
 STUB
-chmod +x "$stub_bin/pacman"
+chmod +x "$stub_bin/rpm"
 
 version() {
   OMARCHY_TEST_PACKAGES="$1" \

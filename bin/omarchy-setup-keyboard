@@ -18,7 +18,7 @@ fi
 # Check if gum is installed
 if ! omarchy-cmd-present gum; then
   echo "Error: gum is not installed. Please install it first:"
-  echo "  sudo pacman -S gum"
+  echo "  sudo dnf install gum"
   exit 1
 fi
 

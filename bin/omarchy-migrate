@@ -83,10 +83,10 @@ for file in $OMARCHY_PATH/migrations/*.sh; do
 
     echo -e "\e[32m\nRunning migration (${filename%.sh})\e[0m"
 
-    if bash "$file"; then
+    if bash -euo pipefail "$file"; then
       touch "$STATE_DIR/$filename"
     else
-      if command -v gum >/dev/null 2>&1 && gum confirm "Migration ${filename%.sh} failed. Skip and continue?"; then
+      if omarchy-cmd-present gum && gum confirm "Migration ${filename%.sh} failed. Skip and continue?"; then
         touch "$STATE_DIR/skipped/$filename"
       else
         exit 1
@@ -94,3 +94,6 @@ for file in $OMARCHY_PATH/migrations/*.sh; do
     fi
   fi
 done
+
+# A completed run clears the pending-migrations login notification.
+omarchy-notification-dismiss "Omarchy Migrations" >/dev/null 2>&1 || true

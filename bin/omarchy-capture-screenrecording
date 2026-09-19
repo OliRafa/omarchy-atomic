@@ -45,8 +45,18 @@ WEBCAM_SIZE="medium"
 RESOLUTION=""
 FULLSCREEN="false"
 STOP_RECORDING="false"
-RECORDING_FILE="/tmp/omarchy-screenrecord-filename"
-REGION_FILE="${XDG_RUNTIME_DIR:-/tmp}/omarchy-screenrecord-region"
+# Recording state lives in the per-user runtime dir; with none (e.g. a non-login
+# invocation) fall back to a private $XDG_STATE_HOME/omarchy rather than a fixed
+# /tmp name another account could pre-create.
+if [[ -n ${XDG_RUNTIME_DIR:-} ]]; then
+  SCREENRECORD_STATE_DIR="$XDG_RUNTIME_DIR"
+else
+  SCREENRECORD_STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy"
+  mkdir -p "$SCREENRECORD_STATE_DIR"
+  chmod 700 "$SCREENRECORD_STATE_DIR"
+fi
+RECORDING_FILE="$SCREENRECORD_STATE_DIR/omarchy-screenrecord-filename"
+REGION_FILE="$SCREENRECORD_STATE_DIR/omarchy-screenrecord-region"
 LOG_FILE=$([[ ${OMARCHY_SCREENRECORD_DEBUG:-false} == "true" ]] && echo "/tmp/omarchy-screenrecord.log" || echo "/dev/null")
 
 # Matches whichever recorder backend is running, so stop/toggle/active checks

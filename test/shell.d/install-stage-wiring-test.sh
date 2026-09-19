@@ -6,7 +6,10 @@ source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/base-test.sh"
 
 # A leaf that no all.sh sources never runs, and nothing else reports that. The
 # Quattro merge left several behind, so pin every stage to its driver.
-stages=(config hardware login post-install user)
+# The Fedora/bootc fork drives config/login/post-install leaves through
+# fedora-image-userland.sh and omarchy-apply-system (a curated hardcoded list),
+# not a per-stage all.sh; only hardware and user use an all.sh aggregator.
+stages=(hardware user)
 
 # Known-unwired leaves. Wiring one means deleting its line here, so the list
 # cannot quietly grow and cannot quietly rot.
@@ -17,10 +20,10 @@ unwired_leaves=(
   "config/timezone-detection.sh"
   # Superseded by the on-demand omarchy-setup-zsh command.
   "config/zsh.sh"
-  # Restores mkinitcpio pacman hooks that the x86 ISO disables to speed its
-  # install. Nothing on the Mac path disables them, so wiring it would only add
-  # a redundant mkinitcpio -P.
-  "login/enable-mkinitcpio.sh"
+  # nvidia-*/lib32-nvidia-* are AUR/DKMS packages excluded from the Fedora set
+  # (install/omarchy-other.packages.fedora); this fork uses nouveau instead, so
+  # nvidia.sh (mkinitcpio.conf.d + those packages) never runs on the Mac path.
+  "hardware/nvidia.sh"
 )
 
 leaf_is_known_unwired() {

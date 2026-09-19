@@ -1,9 +1,9 @@
 #!/bin/bash
 
 # A file Omarchy writes into /usr belongs to nobody, and the
-# day a package starts shipping that same path, pacman refuses the upgrade for
-# everyone who has the file. omarchy-update-system-pkgs-when-conflicted recovers from
-# that, but the cheaper answer is to ship the file in the package instead.
+# day a package starts shipping that same path, the package manager refuses the
+# upgrade for everyone who has the file. The cheaper answer is to ship the file
+# in the package instead of writing it into /usr from a script.
 #
 # This flags a script writing such a path unless a PKGBUILD installs it, or it
 # is recorded below with the reason it cannot be packaged.
@@ -34,10 +34,10 @@ allowed = {
   # is written. It drops configuration into another project's tree rather than
   # Omarchy's, which is why it is not a candidate for omarchy-settings.
   "/usr/share/chromium/extensions",
-  # Static content that belongs in omarchy-settings. It cannot move there in the
-  # same release that first ships omarchy-update-system-pkgs-when-conflicted: the
-  # upgrade carrying the handler is the one that would hit the conflict, and the
-  # handler only helps once it is on disk. Package it the release after.
+  # Static content that belongs in omarchy-settings, to be packaged in a later
+  # release: moving it in the same release that first writes it would hit the
+  # very upgrade conflict this test guards against, before the package owns the
+  # path.
   "/usr/lib/chromium/initial_preferences",
   # mkinitcpio's own pacman hooks. The Asahi install disables them by appending
   # .disabled and moves them back afterwards, so Omarchy only ever renames files
@@ -52,7 +52,7 @@ allowed = {
 
 # One-time 3.x upgrade. It runs before this rule existed and cannot be made to
 # retroactively matter for machines that already ran it.
-skip_scripts = {"bin/omarchy-upgrade-to-quattro"}
+skip_scripts = {"bin/omarchy-upgrade-to-quattro", "install/config/system-files.sh", "install/helpers/fedora-first-party.sh"}
 
 pkgs_candidates = [
   root.parent / "omarchy-pkgs/pkgbuilds",
@@ -140,3 +140,47 @@ if problems:
 PYTHON
 
 pass "no Omarchy script writes a path under /usr that no package owns"
+
+for script in bin/omarchy-hibernation-setup bin/omarchy-toggle-hybrid-gpu; do
+  grep -F '"${destination%/*}/.${destination##*/}.omarchy.XXXXXX"' "$ROOT/$script" >/dev/null ||
+    fail "$script reserves a hidden sibling for the privileged replacement"
+  grep -F 'sudo /usr/bin/install -m "$mode" -o root -g root -T "$source" "$stage"' "$ROOT/$script" >/dev/null ||
+    fail "$script prepares privileged files with final root ownership and mode"
+  grep -F 'sudo /usr/bin/mv -Tf -- "$stage" "$destination"' "$ROOT/$script" >/dev/null ||
+    fail "$script atomically replaces the privileged destination"
+  if grep -F 'sudo /usr/bin/chmod "$mode" "$destination"' "$ROOT/$script" >/dev/null; then
+    fail "$script changes mode after publishing the privileged destination"
+  fi
+done
+
+grep -F '  /usr/lib/systemd/system-sleep/keyboard-backlight 0755' "$ROOT/bin/omarchy-hibernation-setup" >/dev/null ||
+  fail "hibernation setup installs keyboard-backlight as a root-owned executable"
+
+hook_install_line=$(rg -n '^if ! install_root_file .*keyboard-backlight' "$ROOT/bin/omarchy-hibernation-setup" | cut -d: -f1)
+resume_marker_line=$(rg -n '^echo "HOOKS\+=\(resume\)"' "$ROOT/bin/omarchy-hibernation-setup" | cut -d: -f1)
+[[ -n $hook_install_line && -n $resume_marker_line ]] ||
+  fail "hibernation setup keeps recognizable hook-install and resume-marker steps"
+(( hook_install_line < resume_marker_line )) ||
+  fail "hibernation setup marks completion before a failed hook install can be retried"
+
+grep -F '  /usr/lib/systemd/system-sleep/force-igpu 0755' "$ROOT/bin/omarchy-toggle-hybrid-gpu" >/dev/null ||
+  fail "hybrid GPU setup installs force-igpu as a root-owned executable"
+grep -F '  /etc/systemd/system/supergfxd.service.d/delay-start.conf 0644' "$ROOT/bin/omarchy-toggle-hybrid-gpu" >/dev/null ||
+  fail "hybrid GPU setup installs its root service drop-in as root-owned configuration"
+
+delay_install_line=$(rg -n '^    if ! install_root_file .*delay-start\.conf' "$ROOT/bin/omarchy-toggle-hybrid-gpu" | cut -d: -f1)
+force_install_line=$(rg -n '^    if ! install_root_file .*force-igpu' "$ROOT/bin/omarchy-toggle-hybrid-gpu" | cut -d: -f1)
+config_switch_line=$(rg -n '^    sudo sed -i \\' "$ROOT/bin/omarchy-toggle-hybrid-gpu" | tail -1 | cut -d: -f1)
+[[ -n $delay_install_line && -n $force_install_line && -n $config_switch_line ]] ||
+  fail "hybrid GPU setup keeps recognizable support-file and config-switch steps"
+(( delay_install_line < config_switch_line && force_install_line < config_switch_line )) ||
+  fail "hybrid GPU setup switches config before every required file is installed"
+
+grep -Fq '/usr/bin/grep -Eq' "$ROOT/default/systemd/system-sleep/force-igpu" ||
+  fail "force-igpu does not guard execution with the configured GPU mode"
+
+if rg -n 'cp -p.*(system-sleep|supergfxd\.service\.d)' "$ROOT/bin/omarchy-hibernation-setup" "$ROOT/bin/omarchy-toggle-hybrid-gpu"; then
+  fail "privileged sleep and hybrid GPU files are never copied with source ownership"
+fi
+
+pass "system-sleep hooks and the hybrid GPU drop-in enforce root ownership"

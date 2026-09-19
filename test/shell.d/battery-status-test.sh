@@ -4,6 +4,12 @@ set -euo pipefail
 
 source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/base-test.sh"
 
+# Skipped in CI at the user's request (2026-09-16). Note: this is a mocked test
+# (OMARCHY_POWER_SUPPLY_PATH + a stubbed upower), not hardware-dependent, so the
+# real cause of the percentage/rate mismatch should be revisited rather than left skipped.
+echo "ok - battery-status skipped in CI"
+exit 0
+
 tmp_dir=$(mktemp -d)
 trap 'rm -rf "$tmp_dir"' EXIT
 

@@ -214,7 +214,7 @@ pass "a theme name cannot climb out of the theme directories"
 # own config, so anything in it becomes lock-screen configuration. An installed
 # theme must not be able to contribute that file.
 denied=(alacritty.toml foot.ini ghostty.conf kitty.conf gum_env.lua hyprland.lua hyprlock.conf neovim.lua vscode.json)
-colour_only=(btop.theme chromium.theme claude.json helix.toml hyprland-preview-share-picker.css keyboard.rgb obsidian.css pi.json shell.toml vscode-theme.json)
+colour_only=(btop.theme chromium.theme claude.json helix.toml hermes.yaml hyprland-preview-share-picker.css keyboard.rgb obsidian.css pi.json shell.toml t3code.json vscode-theme.json)
 
 for tpl in "$ROOT"/default/themed/*.tpl; do
   generated=$(basename "$tpl" .tpl)

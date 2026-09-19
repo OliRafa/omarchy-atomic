@@ -32,6 +32,15 @@ say(){ printf '[image-userland] %s\n' "$1"; }
 say "system-files.sh (SDDM theme, /etc/omarchy.conf, uwsm/env.d, units, fontconfig, plymouth)"
 bash "$OMARCHY_INSTALL/config/system-files.sh" || say "system-files.sh returned non-zero (tolerated)"
 
+# 1b) etc/ tree (fork-vetted subset): sysctl, faillock, cups/docker/plymouth configs, udev rules,
+#     the /etc/xdg/kitty defaults, and the NOPASSWD sudoers rules (omarchy-tzupdate lets the
+#     timezone menu run `timedatectl` without a TTY). Upstream ships these in its Arch package;
+#     the git-clone fork has no package, so without this step the repo etc/ tree never lands. It
+#     runs as root with no internal sudo, which matches the build. Deliberately complementary to
+#     system-files.sh (see etc-files.sh's "Deliberately NOT installed" header).
+say "etc-files.sh (sysctl, sudoers.d/omarchy-tzupdate, udev rules, /etc/xdg/kitty defaults)"
+bash "$OMARCHY_INSTALL/config/etc-files.sh" || say "etc-files.sh returned non-zero (tolerated)"
+
 # 2) Service enablement + default target. `systemctl enable/set-default` work offline (symlinks);
 #    units not installed (e.g. cups/avahi) fail individually inside the script and are skipped.
 say "enable-services.sh + set-default graphical.target"
@@ -65,5 +74,9 @@ BP
 # Sanity: the first-login provisioning trigger must be reachable from the seeded home.
 [ -f /etc/skel/.config/hypr/hyprland.lua ] || { echo "[image-userland] FATAL: skel missing hypr config" >&2; exit 1; }
 [ -f /etc/omarchy.conf ] || { echo "[image-userland] FATAL: /etc/omarchy.conf not written (session would bounce)" >&2; exit 1; }
+# etc-files.sh must have landed the timezone sudoers rule (the original reason this step exists)
+# and the system kitty defaults the minimal user template relies on.
+[ -f /etc/sudoers.d/omarchy-tzupdate ] || { echo "[image-userland] FATAL: etc-files.sh did not install /etc/sudoers.d/omarchy-tzupdate (timezone menu would fail)" >&2; exit 1; }
+[ -f /etc/xdg/kitty/kitty.conf ] || { echo "[image-userland] FATAL: /etc/xdg/kitty/kitty.conf not installed (kitty ships no defaults)" >&2; exit 1; }
 
 say "done"

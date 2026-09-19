@@ -3,18 +3,9 @@
 # omarchy:summary=Restore the default Omarchy Plymouth boot theme and SDDM login screen
 # omarchy:requires-sudo=true
 
-theme_dir="/usr/share/plymouth/themes/omarchy"
-
-sudo find "$OMARCHY_PATH/default/plymouth" -maxdepth 1 -type f -exec cp -t "$theme_dir/" {} +
-sudo plymouth-set-default-theme omarchy
-
-if omarchy-cmd-present limine-mkinitcpio; then
-  sudo limine-mkinitcpio
-elif omarchy-cmd-present mkinitcpio; then
-  sudo mkinitcpio -P
-else
-  # Fedora builds its initramfs with dracut.
-  sudo dracut --regenerate-all --force
-fi
-
-omarchy-refresh-sddm
+# Both restores go through the hardened fixed-file publisher (omarchy-plymouth-set,
+# via the refresh wrappers): each destination is replaced atomically without
+# following an existing symlink, the full packaged asset set is published
+# (including logos/), and the Plymouth refresh rebuilds the initramfs. Run each
+# as a child so refresh-plymouth's exec does not stop us before refresh-sddm.
+omarchy-refresh-plymouth && omarchy-refresh-sddm
